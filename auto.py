@@ -47,13 +47,14 @@ plt.rcParams['axes.unicode_minus'] = False
 
 HOMECC_SLOGAN = "도면에 표기된 치수(사이즈)는 통바 제외한 창호 사이즈 입니다. 공간에 가치를 더하는 프리미엄 창호, KCC글라스 홈씨씨창호"
 
-# 💡 [디테일 4&5] 통바 배경은 더 연하게, 텍스트는 진한 맞춤 색상으로!
-TONGBA_INFO = {
-    "CB-101*100": {"thick": 100, "color": "#39FF14", "text_color": "#001F66", "scale": 1.3}, 
-    "CB-100*45": {"thick": 60, "color": "#FFFF00", "text_color": "#DC2626", "scale": 1.5},   
-    "CB-45*45": {"thick": 60, "color": " #00FFFF", "text_color": "#001F66", "scale": 1.5},    
-    "CB-135": {"thick": 60, "color": "##FF00FF", "text_color": "#001F66", "scale": 1.4}       
+# 💡 통바 4대 고유 스타일 — 색상 + 강제폭(thick × scale). 표기(CB- / HW5i T_CB- 등)와 무관하게 '치수'로 추정.
+TONGBA_STYLES = {
+    "100각":  {"name": "CB-100*100", "thick": 100, "color": "#39FF14", "text_color": "#001F66", "scale": 1.3},  # 100각 (초록)
+    "납작":   {"name": "CB-100*45",  "thick": 60,  "color": "#FFFF00", "text_color": "#DC2626", "scale": 1.5},  # 납작바 (노랑)
+    "45각":   {"name": "CB-45*45",   "thick": 60,  "color": "#00FFFF", "text_color": "#001F66", "scale": 1.5},  # 45각 (하늘)
+    "각도바": {"name": "CB-135",      "thick": 60,  "color": "#FF00FF", "text_color": "#001F66", "scale": 1.4},  # 135 각도바 (마젠타)
 }
+TONGBA_DEFAULT = {"name": "통바", "thick": 50, "color": "#F3F4F6", "text_color": "#374151", "scale": 1.3}
 
 # ==========================================
 # 🔒 구글 스프레드시트 보안/로그 연동 엔진
@@ -145,12 +146,25 @@ def clean_kcc_name(name):
     return re.sub(r'^HW\s*ONE\s*(\(V\))?[_\s]*', '', str(name), flags=re.IGNORECASE).strip()
 
 def get_tongba_style(model_str):
-    t = str(model_str).upper().replace(" ", "")
-    if 'CB-101*100' in t or 'CB101*100' in t: return TONGBA_INFO['CB-101*100']
-    if 'CB-100*45' in t or 'CB100*45' in t: return TONGBA_INFO['CB-100*45']
-    if 'CB-45*45' in t or 'CB45*45' in t: return TONGBA_INFO['CB-45*45']
-    if 'CB-135' in t or 'CB135' in t or '각도' in t: return TONGBA_INFO['CB-135']
-    return {"thick": 50, "color": "#F3F4F6", "text_color": "#374151", "scale": 1.3} 
+    """CB- / HW5i T_CB- 등 표기가 달라도 '치수'로 통바를 추정해
+       고유 색상 + 강제폭(thick×scale)을 동일하게 적용한다."""
+    raw = str(model_str)
+    t = raw.upper().replace(" ", "")
+
+    # 1) a*b 치수 토큰 우선 (CB- 뒤, 5i 접두어 뒤 어디든)
+    m = re.search(r'(\d{2,3})\s*\*\s*(\d{2,3})', t)
+    if m:
+        hi = max(int(m.group(1)), int(m.group(2)))
+        lo = min(int(m.group(1)), int(m.group(2)))
+        if lo >= 80:                  # 100*100, 101*100 → 100각
+            return TONGBA_STYLES["100각"]
+        if lo <= 55:                  # 한 변이 얇음
+            return TONGBA_STYLES["납작"] if hi >= 80 else TONGBA_STYLES["45각"]
+        return TONGBA_STYLES["납작"]   # 애매한 중간값 → 납작 처리
+    # 2) 치수 없는 각도바 (135 단독 / '각도')
+    if "각도" in raw or re.search(r'(?<!\d)135(?!\d)', t):
+        return TONGBA_STYLES["각도바"]
+    return TONGBA_DEFAULT
 
 def parse_tongba_input(t_str, default_len):
     if not t_str or str(t_str).strip() == "": return []
@@ -400,7 +414,7 @@ def parse_any_quotation(file_buffer):
 # ==========================================
 # 3. 렌더링 엔진
 # ==========================================
-def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, glass_in, glass_out, handle_h, vent_dir, has_screen, t_top_str, t_bot_str, t_left_str, t_right_str, scale_bounds=None, repeat_count=1, unit_w=None, cell_h_mm=None, mm_to_inch=None, view_w_mm=None):
+def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, glass_in, glass_out, handle_h, vent_dir, has_screen, t_top_str, t_bot_str, t_left_str, t_right_str, scale_bounds=None, repeat_count=1, unit_w=None, cell_h_mm=None, mm_to_inch=None, view_w_mm=None, label_mode='normal'):
     
     t_upper = str(win_type).upper().replace(" ", "")
     # ★ 엑셀에서 'ㄷ'자 공틀이 그리스 문자 Π(U+03A0)로 표기되는 경우가 있어 '통바ㄷ'로 정규화 (아래가 뚫린 사각형)
@@ -450,8 +464,30 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
                 prev_x = sp
             ax.add_patch(patches.Rectangle((prev_x, 0), w - prev_x, h, facecolor=mist_color, hatch=mist_hatch, edgecolor='none', alpha=mist_alpha))
 
-    if '통바ㄷ' in t_upper:
-        ax.plot([0, 0, w, w], [0, h, h, 0], color='black', linewidth=1.0)
+    # ★ [통바ㅁ/통바ㄷ] 실선 대신 통바 고유 두께(OFFSET) + 고유 색상 프레임으로 작도
+    #    ★ 공틀 내부면에는 선을 넣지 않음 → 밴드는 edgecolor 없이 '색'만, 외곽선만 별도로 1줄
+    if '통바ㅁ' in t_upper or '통바ㄷ' in t_upper:
+        _fr = get_tongba_style(f"{product} {model_name} {win_type}")
+        _band = _fr['thick'] * _fr['scale']
+        _band = max(20, min(_band, w * 0.4, h * 0.4))  # 작은 창에서 프레임이 안쪽을 다 덮지 않도록 상/하한
+        _fc = _fr['color']
+        _is_du = '통바ㄷ' in t_upper
+        # OFFSET 밴드 (내부면 선 제거를 위해 edgecolor='none')
+        ax.add_patch(patches.Rectangle((0, h - _band), w, _band, facecolor=_fc, edgecolor='none', zorder=2))   # 상
+        ax.add_patch(patches.Rectangle((0, 0), _band, h, facecolor=_fc, edgecolor='none', zorder=2))           # 좌
+        ax.add_patch(patches.Rectangle((w - _band, 0), _band, h, facecolor=_fc, edgecolor='none', zorder=2))   # 우
+        if not _is_du:
+            ax.add_patch(patches.Rectangle((0, 0), w, _band, facecolor=_fc, edgecolor='none', zorder=2))       # 하 (ㅁ자만)
+        # 외곽 정의선만 (ㄷ자는 하단 개방 → 3면 라인)
+        if _is_du:
+            ax.plot([0, 0, w, w], [0, h, h, 0], color='black', linewidth=1.0, zorder=3)
+        else:
+            ax.add_patch(patches.Rectangle((0, 0), w, h, linewidth=1.0, edgecolor='black', facecolor='none', zorder=3))
+        _mlab = re.search(r'(CB-?\d{2,3}(?:\*\d{2,3})?)', f"{product}{model_name}".upper().replace(" ", ""))
+        _code = re.sub(r'^CB-?', 'CB-', _mlab.group(1)) if _mlab else _fr.get('name', '통바')
+        _frame_kind = 'ㄷ자' if _is_du else 'ㅁ자'
+        ax.text(w/2, h/2, f"{_code}\n{_frame_kind} 통바", ha='center', va='center', fontsize=9,
+                fontweight='bold', color=_fr['text_color'], bbox=txt_bbox, zorder=4)
     else:
         rect = patches.Rectangle((0, 0), w, h, linewidth=0.8, edgecolor='black', facecolor='none')
         ax.add_patch(rect)
@@ -544,7 +580,7 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         start_x = (w - t_len) / 2 
         ax.add_patch(patches.Rectangle((start_x, current_y), t_len, thick_v, facecolor=t['color'], edgecolor='black', linewidth=0.8))
         
-        full_text = f"{t['name']} ({t['len']})" + (f" X{t['qty']}" if t['qty'] > 1 else "")
+        full_text = f"{t['name']} ({t['len']})" + (f" X{t['qty']}" if t['qty'] > 1 else "")  # ★ 상/하단은 통바 안 인라인 표기 (외부라벨 간섭 방지)
         ax.text(w/2, current_y + thick_v/2, full_text, ha='center', va='center', fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
         current_y += thick_v
 
@@ -557,7 +593,7 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         start_x = (w - t_len) / 2 
         ax.add_patch(patches.Rectangle((start_x, current_y), t_len, thick_v, facecolor=t['color'], edgecolor='black', linewidth=0.8))
         
-        full_text = f"{t['name']} ({t['len']})" + (f" X{t['qty']}" if t['qty'] > 1 else "")
+        full_text = f"{t['name']} ({t['len']})" + (f" X{t['qty']}" if t['qty'] > 1 else "")  # ★ 상/하단은 통바 안 인라인 표기 (외부라벨 간섭 방지)
         ax.text(w/2, current_y + thick_v/2, full_text, ha='center', va='center', fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
 
     # 좌측 통바 — ★ [요청5] 통바 길이가 본체 H와 다를 때, 도면 상부 라인에 맞춰 정렬하고 아래로 내려오게 배치
@@ -569,7 +605,7 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         start_y = h - t_len  # 상단 기준 정렬 (기존: 0 — 하단 기준이었음)
         ax.add_patch(patches.Rectangle((current_x, start_y), thick_v, t_len, facecolor=t['color'], edgecolor='black', linewidth=0.8))
         
-        full_text = f"{t['name']} ({t['len']})" + (f" X{t['qty']}" if t['qty'] > 1 else "")
+        full_text = f"{t['name']} ({t['len']})"  # ★ 인라인 X카운트 제거 → 좌/우 센터 라벨로만 표기
         ax.text(current_x + thick_v/2, start_y + t_len/2, full_text, ha='center', va='center', rotation=90, fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
     
     left_idx_x = current_x / 2 if t_left_list else -100
@@ -582,7 +618,7 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         start_y = h - t_len  # 상단 기준 정렬 (기존: 0 — 하단 기준이었음)
         ax.add_patch(patches.Rectangle((current_x, start_y), thick_v, t_len, facecolor=t['color'], edgecolor='black', linewidth=0.8))
         
-        full_text = f"{t['name']} ({t['len']})" + (f" X{t['qty']}" if t['qty'] > 1 else "")
+        full_text = f"{t['name']} ({t['len']})"  # ★ 인라인 X카운트 제거 → 좌/우 센터 라벨로만 표기
         ax.text(current_x + thick_v/2, start_y + t_len/2, full_text, ha='center', va='center', rotation=90, fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
         current_x += thick_v
     
@@ -590,12 +626,10 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
 
     # 💡 [레이아웃 완전 복원 부위] 인위적인 분할을 걷어내고, 오리지널의 무결점 정렬 엔진으로 회귀했습니다!
     display_name = model_name if model_name else product
-    
-    # 1. 상단 메인 헤더: 순번, 설치위치, 모델명 / 창형태 통합 렌더링 (\n 단일 블록으로 자간 왜곡 100% 진압)
+
     top_title_text = f"[{seq}] {loc}\n{display_name} / {win_type}"
-    ax.text(w/2, h + 400, top_title_text, ha='center', va='bottom', fontsize=11, fontweight='bold', linespacing=1.3)
-    
-    # 2. 유리사양 문자열 스마트 빌드 (이중창은 중간에 '/' 삽입, 단창은 한 줄 출력, 접두사 전면 삭제)
+
+    # 유리사양 문자열 빌드
     if glass_in and glass_out:
         glass_text = f"{glass_in} / {glass_out}"
     elif glass_in:
@@ -604,34 +638,68 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         glass_text = glass_out
     else:
         glass_text = ""
-        
-    # 3. 하단 유리 헤더: 핵심 키워드 유무에 따라 라인 통채색 처리 (자간 왜곡 원천 차단형 컬러링 기술)
+    glass_color = 'black'
     if glass_text:
-        glass_color = 'black'
         if '미스트' in glass_text:
-            glass_color = '#DC2626'  # ❤️ 미스트 단어가 식별되면 라인 전체를 빨간색으로!
+            glass_color = '#DC2626'
         elif '로이' in glass_text or '컬러로이' in glass_text or '더블로이' in glass_text:
-            glass_color = '#1D4ED8'  # 💙 로이 시리즈 단어가 식별되면 라인 전체를 파란색으로!
-            
-        ax.text(w/2, h + 200, glass_text, ha='center', va='bottom', fontsize=9, fontweight='bold', color=glass_color)
-    
+            glass_color = '#1D4ED8'
+
     total_bot_offset = sum(t['thick'] * t['scale'] for t in t_bot_list)
-    ax.text(w/2, -260 - total_bot_offset, f"{w} x {h}", ha='center', va='top', fontsize=11, fontweight='bold', color='#1E3A8A')
+
+    # ★ [결합기능] label_mode로 헤더/유리/사이즈 위치를 제어
+    #   normal : 제목·유리=위, 사이즈=아래 (기본/단독 도면)
+    #   upper  : 모두 '위'로 (결합 상부도면 — 본체 아래는 하부도면이 붙으므로 비움)
+    #   lower  : 모두 '아래'로 (결합 하부도면 — 본체 위는 상부도면이 붙으므로 비움)
+    _eff = mm_to_inch if mm_to_inch else 0.0015
+    def _lh(pt, ls=1.0):  # 라인 높이(mm)
+        return (pt / 72) / _eff * ls
+    _top_thick_lbl = sum(t['thick'] * t['scale'] for t in t_top_list)
+    _body_top_lbl = h + _top_thick_lbl
+    _body_bot_lbl = -total_bot_offset
+    _gap = _lh(11) * 0.5
+
+    if label_mode == 'upper':
+        # 위로: (본체에 가까운 순서) 사이즈 → 유리 → 제목
+        _y = _body_top_lbl + _gap
+        ax.text(w/2, _y, f"{w} x {h}", ha='center', va='bottom', fontsize=11, fontweight='bold', color='#1E3A8A')
+        _y += _lh(11, 1.2)
+        if glass_text:
+            ax.text(w/2, _y, glass_text, ha='center', va='bottom', fontsize=9, fontweight='bold', color=glass_color)
+            _y += _lh(9, 1.4)
+        ax.text(w/2, _y, top_title_text, ha='center', va='bottom', fontsize=11, fontweight='bold', linespacing=1.3)
+    elif label_mode == 'lower':
+        # 아래로: (본체에 가까운 순서) 사이즈 → 제목 → 유리
+        _y = _body_bot_lbl - _gap
+        ax.text(w/2, _y, f"{w} x {h}", ha='center', va='top', fontsize=11, fontweight='bold', color='#1E3A8A')
+        _y -= _lh(11, 1.2)
+        ax.text(w/2, _y, top_title_text, ha='center', va='top', fontsize=11, fontweight='bold', linespacing=1.3)
+        _y -= _lh(11, 1.3) * 2
+        if glass_text:
+            ax.text(w/2, _y, glass_text, ha='center', va='top', fontsize=9, fontweight='bold', color=glass_color)
+    else:
+        ax.text(w/2, h + 400, top_title_text, ha='center', va='bottom', fontsize=11, fontweight='bold', linespacing=1.3)
+        if glass_text:
+            ax.text(w/2, h + 200, glass_text, ha='center', va='bottom', fontsize=9, fontweight='bold', color=glass_color)
+        ax.text(w/2, -260 - total_bot_offset, f"{w} x {h}", ha='center', va='top', fontsize=11, fontweight='bold', color='#1E3A8A')
     
     left_stacked_texts = [f"X{t['qty']}" for t in t_left_list if t['qty'] > 1]
     right_stacked_texts = [f"X{t['qty']}" for t in t_right_list if t['qty'] > 1]
     
-    # ★ [요청5] 좌/우 통바가 상단 정렬로 바뀜에 따라, 수량(X{qty}) 라벨도 통바의 실제 세로 중심에 맞춰 표기
-    left_label_y = h - (max((t['len'] for t in t_left_list), default=0) / 2) if t_left_list else (-30 - total_bot_offset)
-    right_label_y = h - (max((t['len'] for t in t_right_list), default=0) / 2) if t_right_list else (-30 - total_bot_offset)
+    # ★ 좌/우 통바 수량(X{qty}) 라벨 — 통바 하단 끝 '아래'에 독립 표기 (통바면 색밴드와 간섭 X)
+    _LBL_GAP = 70  # 통바 하단 끝에서 라벨까지 여백
+    _left_len_max = max((t['len'] for t in t_left_list), default=0)
+    _right_len_max = max((t['len'] for t in t_right_list), default=0)
+    left_label_y = (h - _left_len_max - _LBL_GAP) if t_left_list else (-30 - total_bot_offset)
+    right_label_y = (h - _right_len_max - _LBL_GAP) if t_right_list else (-30 - total_bot_offset)
 
     if left_stacked_texts:
         left_txt = "\n".join(left_stacked_texts)
-        ax.text(left_idx_x, left_label_y, left_txt, ha='center', va='center', fontsize=8, fontweight='bold', color='red', bbox=txt_bbox)
+        ax.text(left_idx_x, left_label_y, left_txt, ha='center', va='top', fontsize=8, fontweight='bold', color='red', bbox=txt_bbox)
         
     if right_stacked_texts:
         right_txt = "\n".join(right_stacked_texts)
-        ax.text(right_idx_x, right_label_y, right_txt, ha='center', va='center', fontsize=8, fontweight='bold', color='red', bbox=txt_bbox)
+        ax.text(right_idx_x, right_label_y, right_txt, ha='center', va='top', fontsize=8, fontweight='bold', color='red', bbox=txt_bbox)
     
     # ★★★ [완전 재설계] 바운딩 박스 = 헤더(제목2줄+유리사양) + 본체(통바포함) + 사이즈텍스트 전체를 1세트로 묶는다.
     # 텍스트 높이도 mm_to_inch 공통 스케일로 정확히 환산해서 박스 안에 포함시키므로,
@@ -695,8 +763,17 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
     box_x = content_left - SIDE_PAD - text_extra_halfwidth - handle_label_extra_right / 2
     box_w = (content_right - content_left) + SIDE_PAD * 2 + text_extra_halfwidth * 2 + handle_label_extra_right
     # ★ 박스 전체 = 헤더공간 + 본체(통바포함) + 호흡여백(상하) + 사이즈: 모두 mm 단위로 합산
-    box_top = body_top + header_h_mm
-    box_bot = body_bot - footer_h_mm
+    # ★ [결합기능] label_mode별 박스 범위 — 라벨이 한쪽으로 몰리므로 그쪽만 여유 확보
+    _label_stack = header_h_mm + footer_h_mm
+    if label_mode == 'upper':
+        box_top = body_top + _label_stack
+        box_bot = body_bot
+    elif label_mode == 'lower':
+        box_top = body_top
+        box_bot = body_bot - _label_stack
+    else:
+        box_top = body_top + header_h_mm
+        box_bot = body_bot - footer_h_mm
     box_h = box_top - box_bot
     box_y = box_bot
 
