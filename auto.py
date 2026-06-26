@@ -477,12 +477,14 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         ax.add_patch(patches.Rectangle((0, 0), _band, h, facecolor=_fc, edgecolor='none', zorder=2))           # 좌
         ax.add_patch(patches.Rectangle((w - _band, 0), _band, h, facecolor=_fc, edgecolor='none', zorder=2))   # 우
         if not _is_du:
-            ax.add_patch(patches.Rectangle((0, 0), w, _band, facecolor=_fc, edgecolor='none', zorder=2))       # 하 (ㅁ자만)
-        # 외곽 정의선만 (ㄷ자는 하단 개방 → 3면 라인)
+            ax.add_patch(patches.Rectangle((0, 0), w, _band, facecolor=_fc, edgecolor='none', zorder=2))       # 하 색밴드 (ㅁ자만)
+        # ★ 색밴드 영역을 외곽선(외곽+내곽)으로 한정 → 프레임 표현. ㄷ자는 하단 개방(뚫림)
         if _is_du:
-            ax.plot([0, 0, w, w], [0, h, h, 0], color='black', linewidth=1.0, zorder=3)
+            ax.plot([0, 0, w, w], [0, h, h, 0], color='black', linewidth=1.0, zorder=3)                          # 외곽 3면(하단 개방)
+            ax.plot([_band, _band, w - _band, w - _band], [0, h - _band, h - _band, 0], color='black', linewidth=0.8, zorder=3)  # 내곽 3면
         else:
-            ax.add_patch(patches.Rectangle((0, 0), w, h, linewidth=1.0, edgecolor='black', facecolor='none', zorder=3))
+            ax.add_patch(patches.Rectangle((0, 0), w, h, fill=False, edgecolor='black', linewidth=1.0, zorder=3))                 # 외곽
+            ax.add_patch(patches.Rectangle((_band, _band), w - 2 * _band, h - 2 * _band, fill=False, edgecolor='black', linewidth=0.8, zorder=3))  # 내곽
         _mlab = re.search(r'(CB-?\d{2,3}(?:\*\d{2,3})?)', f"{product}{model_name}".upper().replace(" ", ""))
         _code = re.sub(r'^CB-?', 'CB-', _mlab.group(1)) if _mlab else _fr.get('name', '통바')
         _frame_kind = 'ㄷ자' if _is_du else 'ㅁ자'
@@ -659,6 +661,8 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
     _body_bot_lbl = -total_bot_offset
     _gap = _lh(11) * 0.5
 
+    _lbl_box_top = None
+    _lbl_box_bot = None
     if label_mode == 'upper':
         # 위로: (본체에 가까운 순서) 사이즈 → 유리 → 제목
         _y = _body_top_lbl + _gap
@@ -668,6 +672,8 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
             ax.text(w/2, _y, glass_text, ha='center', va='bottom', fontsize=9, fontweight='bold', color=glass_color)
             _y += _lh(9, 1.4)
         ax.text(w/2, _y, top_title_text, ha='center', va='bottom', fontsize=11, fontweight='bold', linespacing=1.3)
+        # ★ 라벨 실제 상단 + 단독창과 동일한 상단 여백 → 결합셀 상부정렬
+        _lbl_box_top = _y + _lh(11, 1.3) * 2 + _lh(9, 1.2) + _lh(9) * 0.5
     elif label_mode == 'lower':
         # 아래로: (본체에 가까운 순서) 사이즈 → 제목 → 유리
         _y = _body_bot_lbl - _gap
@@ -677,6 +683,8 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         _y -= _lh(11, 1.3) * 2
         if glass_text:
             ax.text(w/2, _y, glass_text, ha='center', va='top', fontsize=9, fontweight='bold', color=glass_color)
+            _y -= _lh(9, 1.2)
+        _lbl_box_bot = _y - _lh(11) * 0.5
     else:
         ax.text(w/2, h + 400, top_title_text, ha='center', va='bottom', fontsize=11, fontweight='bold', linespacing=1.3)
         if glass_text:
@@ -763,14 +771,13 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
     box_x = content_left - SIDE_PAD - text_extra_halfwidth - handle_label_extra_right / 2
     box_w = (content_right - content_left) + SIDE_PAD * 2 + text_extra_halfwidth * 2 + handle_label_extra_right
     # ★ 박스 전체 = 헤더공간 + 본체(통바포함) + 호흡여백(상하) + 사이즈: 모두 mm 단위로 합산
-    # ★ [결합기능] label_mode별 박스 범위 — 라벨이 한쪽으로 몰리므로 그쪽만 여유 확보
-    _label_stack = header_h_mm + footer_h_mm
+    # ★ [결합기능] label_mode별 박스 범위 — 라벨 실제 상/하단에 딱 맞춰 빈 공간 제거(상부정렬 보장)
     if label_mode == 'upper':
-        box_top = body_top + _label_stack
+        box_top = _lbl_box_top if _lbl_box_top is not None else (body_top + header_h_mm)
         box_bot = body_bot
     elif label_mode == 'lower':
         box_top = body_top
-        box_bot = body_bot - _label_stack
+        box_bot = _lbl_box_bot if _lbl_box_bot is not None else (body_bot - footer_h_mm)
     else:
         box_top = body_top + header_h_mm
         box_bot = body_bot - footer_h_mm
@@ -857,17 +864,18 @@ def _build_render_units(wins, merge_sel):
     return units
 
 
-def _compute_window_footprint(win, mm_to_inch=None):
+def _compute_window_footprint(win, mm_to_inch=None, label_mode='normal'):
     """이 도면이 실제로 차지하는 전체 박스 크기를 mm 단위로 계산.
     ★★★ [완전 재설계] 박스 = 헤더(제목2줄+유리사양) + 본체(통바포함) + 사이즈텍스트 전체를 1세트로 묶는다.
     render_window_on_ax의 박스 계산 로직과 정확히 동일한 공식을 사용해야
     레이아웃 단계(여기)와 실제 렌더링 단계의 박스 크기가 일치한다.
+    label_mode(normal/upper/lower)는 결합도면용 — render와 동일한 한쪽몰림 박스높이를 반영한다.
     mm_to_inch가 주어지면(2차 계산) 실측 기반 정확한 텍스트 크기를 반영하고,
     없으면(1차 추정) 합리적 기본 스케일로 근사한다."""
-    # ★ [결합기능] 결합 단위는 상/하 footprint를 세로로 합치고, 폭은 더 넓은 쪽으로
+    # ★ [결합기능] 결합 단위는 상/하 footprint(각 모드)를 세로로 합치고, 폭은 더 넓은 쪽으로
     if win.get('_merged'):
-        fw_u, fh_u = _compute_window_footprint(win['upper'], mm_to_inch)
-        fw_l, fh_l = _compute_window_footprint(win['lower'], mm_to_inch)
+        fw_u, fh_u = _compute_window_footprint(win['upper'], mm_to_inch, 'upper')
+        fw_l, fh_l = _compute_window_footprint(win['lower'], mm_to_inch, 'lower')
         return max(fw_u, fw_l), fh_u + fh_l
 
     t_top_list = parse_tongba_input(win['auto_top'], win['가로(W)'])
@@ -916,7 +924,16 @@ def _compute_window_footprint(win, mm_to_inch=None):
     text_extra_halfwidth = max(0, text_overflow - SIDE_PAD)
 
     footprint_w = (w_val + total_left + total_right) + SIDE_PAD * 2 + text_extra_halfwidth * 2 + handle_label_extra_right
-    footprint_h = (h_val + total_top + total_bot) + header_h_mm + footer_h_mm
+    # ★ [결합기능] label_mode별 세로 높이 — render의 _lbl_box_top/_lbl_box_bot와 동일 공식
+    _gap_fp = _h_mm(11) * 0.5
+    if label_mode == 'upper':
+        _above = _gap_fp + _h_mm(11, 1.2) + (_h_mm(9, 1.4) if glass_text else 0) + _h_mm(11, 1.3) * 2 + _h_mm(9, 1.2) + _h_mm(9) * 0.5
+        footprint_h = (h_val + total_top + total_bot) + _above
+    elif label_mode == 'lower':
+        _below = _gap_fp + _h_mm(11, 1.2) + _h_mm(11, 1.3) * 2 + (_h_mm(9, 1.2) if glass_text else 0) + _h_mm(11) * 0.5
+        footprint_h = (h_val + total_top + total_bot) + _below
+    else:
+        footprint_h = (h_val + total_top + total_bot) + header_h_mm + footer_h_mm
     return footprint_w, footprint_h
 
 
@@ -1097,8 +1114,8 @@ def generate_a3_pdf_and_images(draw_data, p_name, s_addr, n_cols=4, items_per_pa
                     if win.get('_merged'):
                         # ★ [결합기능] 상부/하부를 한 셀 안에 세로로 맞닿게 스택 (상부=라벨 위, 하부=라벨 아래)
                         up, lo = win['upper'], win['lower']
-                        fw_u, fh_u = _compute_window_footprint(up, MM_TO_INCH)
-                        fw_l, fh_l = _compute_window_footprint(lo, MM_TO_INCH)
+                        fw_u, fh_u = _compute_window_footprint(up, MM_TO_INCH, 'upper')
+                        fw_l, fh_l = _compute_window_footprint(lo, MM_TO_INCH, 'lower')
                         bwu, bhu = fw_u * MM_TO_INCH, fh_u * MM_TO_INCH
                         bwl, bhl = fw_l * MM_TO_INCH, fh_l * MM_TO_INCH
                         # 상부: 셀 상단에 붙이고 가로 중앙정렬
