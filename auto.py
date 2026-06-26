@@ -811,6 +811,52 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
 # ==========================================
 # 4. 출력 엔진 
 # ==========================================
+def _render_win_dict(ax, win, mm_to_inch=None, cell_h_mm=None, label_mode='normal', view_w_mm=None):
+    """win(dict)을 받아 render_window_on_ax를 호출하는 얇은 래퍼."""
+    return render_window_on_ax(
+        ax, win['순번'], win['unit_w'] * win.get('repeat_count', 1), win['세로(H)'], win['w1'],
+        win['형태'], win['위치'], win['제품명'], win['모델명'], win['glass_in'], win['glass_out'],
+        win.get('핸들높이'), win['vent_dir'], win['has_screen'],
+        win['auto_top'], win['auto_bot'], win['auto_left'], win['auto_right'],
+        repeat_count=win.get('repeat_count', 1), unit_w=win.get('unit_w'),
+        cell_h_mm=cell_h_mm, mm_to_inch=mm_to_inch, view_w_mm=view_w_mm, label_mode=label_mode
+    )
+
+
+def _build_render_units(wins, merge_sel):
+    """결합 선택(merge_sel: uid→하부로 붙일 순번)을 반영해 렌더 단위 리스트를 만든다.
+    - 단독 창은 그대로, 결합 쌍은 {'_merged': True, 'upper': 상부win, 'lower': 하부win} 로 묶는다.
+    - 한 창이 동시에 상부이면서 누군가의 하부가 되는 충돌은 방지(먼저 잡힌 것 우선)."""
+    by_seq = {}
+    for idx, w in enumerate(wins):
+        by_seq.setdefault(w['순번'], idx)
+
+    lower_idx_set = set()   # 누군가의 하부로 소비된 창
+    pair_for = {}           # 상부 idx → 하부 idx
+    for idx, w in enumerate(wins):
+        tgt = merge_sel.get(idx)
+        if tgt in (None, "없음", ""):
+            continue
+        t_idx = by_seq.get(tgt)
+        if t_idx is None or t_idx == idx:
+            continue
+        if t_idx in lower_idx_set or t_idx in pair_for or idx in lower_idx_set:
+            continue  # 이미 사용된 창은 건너뜀
+        pair_for[idx] = t_idx
+        lower_idx_set.add(t_idx)
+
+    units = []
+    for idx, w in enumerate(wins):
+        if idx in lower_idx_set:
+            continue
+        if idx in pair_for:
+            lo = wins[pair_for[idx]]
+            units.append({'_merged': True, 'upper': w, 'lower': lo, '순번': f"{w['순번']}+{lo['순번']}"})
+        else:
+            units.append(w)
+    return units
+
+
 def _compute_window_footprint(win, mm_to_inch=None):
     """이 도면이 실제로 차지하는 전체 박스 크기를 mm 단위로 계산.
     ★★★ [완전 재설계] 박스 = 헤더(제목2줄+유리사양) + 본체(통바포함) + 사이즈텍스트 전체를 1세트로 묶는다.
@@ -818,6 +864,12 @@ def _compute_window_footprint(win, mm_to_inch=None):
     레이아웃 단계(여기)와 실제 렌더링 단계의 박스 크기가 일치한다.
     mm_to_inch가 주어지면(2차 계산) 실측 기반 정확한 텍스트 크기를 반영하고,
     없으면(1차 추정) 합리적 기본 스케일로 근사한다."""
+    # ★ [결합기능] 결합 단위는 상/하 footprint를 세로로 합치고, 폭은 더 넓은 쪽으로
+    if win.get('_merged'):
+        fw_u, fh_u = _compute_window_footprint(win['upper'], mm_to_inch)
+        fw_l, fh_l = _compute_window_footprint(win['lower'], mm_to_inch)
+        return max(fw_u, fw_l), fh_u + fh_l
+
     t_top_list = parse_tongba_input(win['auto_top'], win['가로(W)'])
     t_bot_list = parse_tongba_input(win['auto_bot'], win['가로(W)'])
     t_left_list = parse_tongba_input(win['auto_left'], win['세로(H)'])
@@ -1042,19 +1094,32 @@ def generate_a3_pdf_and_images(draw_data, p_name, s_addr, n_cols=4, items_per_pa
                 for win, fw_mm, fh_mm in row:
                     col_w_inch = fw_mm * MM_TO_INCH
 
-                    ax_left = cursor_x_inch / PAGE_W_INCH
-                    ax_bottom = (cursor_y_inch - row_h_inch) / PAGE_H_INCH
-                    ax_w = col_w_inch / PAGE_W_INCH
-                    ax_h = row_h_inch / PAGE_H_INCH
-
-                    ax = fig.add_axes([ax_left, ax_bottom, ax_w, ax_h])
-                    render_window_on_ax(
-                        ax, win['순번'], win['unit_w'] * win.get('repeat_count', 1), win['세로(H)'], win['w1'], win['형태'], win['위치'],
-                        win['제품명'], win['모델명'], win['glass_in'], win['glass_out'], win.get('핸들높이'), win['vent_dir'], win['has_screen'],
-                        win['auto_top'], win['auto_bot'], win['auto_left'], win['auto_right'],
-                        repeat_count=win.get('repeat_count', 1), unit_w=win.get('unit_w'),
-                        cell_h_mm=row_max_h_mm, mm_to_inch=MM_TO_INCH
-                    )
+                    if win.get('_merged'):
+                        # ★ [결합기능] 상부/하부를 한 셀 안에 세로로 맞닿게 스택 (상부=라벨 위, 하부=라벨 아래)
+                        up, lo = win['upper'], win['lower']
+                        fw_u, fh_u = _compute_window_footprint(up, MM_TO_INCH)
+                        fw_l, fh_l = _compute_window_footprint(lo, MM_TO_INCH)
+                        bwu, bhu = fw_u * MM_TO_INCH, fh_u * MM_TO_INCH
+                        bwl, bhl = fw_l * MM_TO_INCH, fh_l * MM_TO_INCH
+                        # 상부: 셀 상단에 붙이고 가로 중앙정렬
+                        up_bottom = cursor_y_inch - bhu
+                        ax_u = fig.add_axes([
+                            (cursor_x_inch + (col_w_inch - bwu) / 2) / PAGE_W_INCH,
+                            up_bottom / PAGE_H_INCH, bwu / PAGE_W_INCH, bhu / PAGE_H_INCH])
+                        _render_win_dict(ax_u, up, mm_to_inch=MM_TO_INCH, label_mode='upper')
+                        # 하부: 상부 바로 아래 맞닿게
+                        lo_bottom = up_bottom - bhl
+                        ax_l = fig.add_axes([
+                            (cursor_x_inch + (col_w_inch - bwl) / 2) / PAGE_W_INCH,
+                            lo_bottom / PAGE_H_INCH, bwl / PAGE_W_INCH, bhl / PAGE_H_INCH])
+                        _render_win_dict(ax_l, lo, mm_to_inch=MM_TO_INCH, label_mode='lower')
+                    else:
+                        ax_left = cursor_x_inch / PAGE_W_INCH
+                        ax_bottom = (cursor_y_inch - row_h_inch) / PAGE_H_INCH
+                        ax_w = col_w_inch / PAGE_W_INCH
+                        ax_h = row_h_inch / PAGE_H_INCH
+                        ax = fig.add_axes([ax_left, ax_bottom, ax_w, ax_h])
+                        _render_win_dict(ax, win, mm_to_inch=MM_TO_INCH, cell_h_mm=row_max_h_mm)
                     # ★ [요청3] 다음 칸은 이 박스의 실제 폭 + 고정 간격만큼 이동
                     cursor_x_inch += col_w_inch + GAP_INCH
 
@@ -1303,7 +1368,15 @@ if uploaded_file:
                                 st.text_input("좌측", value=curr_left, key=f"in_left_{uid}")
                                 st.text_input("우측", value=curr_right, key=f"in_right_{uid}")
                                 st.button("💾 저장", key=f"save_{uid}", on_click=save_edits, args=(uid,), type="primary")
-                                
+
+                            # ★ [결합기능] 이 도면 '아래로' 붙일 순번 선택 (세로 결합)
+                            _other_seqs = [draw_data[k2]['순번'] for k2 in range(len(draw_data)) if k2 != uid]
+                            st.selectbox(
+                                "🔗 세로결합 (이 도면 아래로 붙일 순번)",
+                                options=["없음"] + _other_seqs,
+                                key=f"merge_below_{uid}",
+                            )
+
                             st.divider()
 
     with tab2:
@@ -1350,8 +1423,12 @@ if uploaded_file:
                     win_copy['auto_left'] = st.session_state.get(f"saved_left_{uid}", win['auto_left'])
                     win_copy['auto_right'] = st.session_state.get(f"saved_right_{uid}", win['auto_right'])
                     final_draw_data.append(win_copy)
-                
-                pdf_bytes, img_bytes_list, combined_img_bytes = generate_a3_pdf_and_images(final_draw_data, partner_input, address_input, scale_ratio=chosen_scale)
+
+                # ★ [결합기능] 작업대에서 고른 세로결합 선택을 반영해 렌더 단위로 묶는다
+                merge_sel = {uid: st.session_state.get(f"merge_below_{uid}", "없음") for uid in range(len(draw_data))}
+                render_units = _build_render_units(final_draw_data, merge_sel)
+
+                pdf_bytes, img_bytes_list, combined_img_bytes = generate_a3_pdf_and_images(render_units, partner_input, address_input, scale_ratio=chosen_scale)
                 log_usage(partner_input, address_input, len(final_draw_data))
                 
                 st.success("🎉 도면 생성 완료! 사용 로그가 성공적으로 기록되었습니다.")
