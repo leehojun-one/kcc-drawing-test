@@ -414,7 +414,7 @@ def parse_any_quotation(file_buffer):
 # ==========================================
 # 3. 렌더링 엔진
 # ==========================================
-def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, glass_in, glass_out, handle_h, vent_dir, has_screen, t_top_str, t_bot_str, t_left_str, t_right_str, scale_bounds=None, repeat_count=1, unit_w=None, cell_h_mm=None, mm_to_inch=None, view_w_mm=None, label_mode='normal'):
+def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, glass_in, glass_out, handle_h, vent_dir, has_screen, t_top_str, t_bot_str, t_left_str, t_right_str, scale_bounds=None, repeat_count=1, unit_w=None, cell_h_mm=None, mm_to_inch=None, view_w_mm=None, label_mode='normal', draw_box=True, side_tongba_labels=True):
     
     t_upper = str(win_type).upper().replace(" ", "")
     # ★ 엑셀에서 'ㄷ'자 공틀이 그리스 문자 Π(U+03A0)로 표기되는 경우가 있어 '통바ㄷ'로 정규화 (아래가 뚫린 사각형)
@@ -607,8 +607,9 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         start_y = h - t_len  # 상단 기준 정렬 (기존: 0 — 하단 기준이었음)
         ax.add_patch(patches.Rectangle((current_x, start_y), thick_v, t_len, facecolor=t['color'], edgecolor='black', linewidth=0.8))
         
-        full_text = f"{t['name']} ({t['len']})"  # ★ 인라인 X카운트 제거 → 좌/우 센터 라벨로만 표기
-        ax.text(current_x + thick_v/2, start_y + t_len/2, full_text, ha='center', va='center', rotation=90, fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
+        if side_tongba_labels:
+            full_text = f"{t['name']} ({t['len']})"  # ★ 인라인 X카운트 제거 → 좌/우 센터 라벨로만 표기
+            ax.text(current_x + thick_v/2, start_y + t_len/2, full_text, ha='center', va='center', rotation=90, fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
     
     left_idx_x = current_x / 2 if t_left_list else -100
 
@@ -620,8 +621,9 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         start_y = h - t_len  # 상단 기준 정렬 (기존: 0 — 하단 기준이었음)
         ax.add_patch(patches.Rectangle((current_x, start_y), thick_v, t_len, facecolor=t['color'], edgecolor='black', linewidth=0.8))
         
-        full_text = f"{t['name']} ({t['len']})"  # ★ 인라인 X카운트 제거 → 좌/우 센터 라벨로만 표기
-        ax.text(current_x + thick_v/2, start_y + t_len/2, full_text, ha='center', va='center', rotation=90, fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
+        if side_tongba_labels:
+            full_text = f"{t['name']} ({t['len']})"  # ★ 인라인 X카운트 제거 → 좌/우 센터 라벨로만 표기
+            ax.text(current_x + thick_v/2, start_y + t_len/2, full_text, ha='center', va='center', rotation=90, fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
         current_x += thick_v
     
     right_idx_x = (w + current_x) / 2 if t_right_list else w + 100
@@ -701,11 +703,11 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
     left_label_y = (h - _left_len_max - _LBL_GAP) if t_left_list else (-30 - total_bot_offset)
     right_label_y = (h - _right_len_max - _LBL_GAP) if t_right_list else (-30 - total_bot_offset)
 
-    if left_stacked_texts:
+    if left_stacked_texts and side_tongba_labels:
         left_txt = "\n".join(left_stacked_texts)
         ax.text(left_idx_x, left_label_y, left_txt, ha='center', va='top', fontsize=8, fontweight='bold', color='red', bbox=txt_bbox)
         
-    if right_stacked_texts:
+    if right_stacked_texts and side_tongba_labels:
         right_txt = "\n".join(right_stacked_texts)
         ax.text(right_idx_x, right_label_y, right_txt, ha='center', va='top', fontsize=8, fontweight='bold', color='red', bbox=txt_bbox)
     
@@ -785,11 +787,12 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
     box_y = box_bot
 
     corner_r = min(box_w, box_h) * 0.04
-    ax.add_patch(patches.FancyBboxPatch(
-        (box_x, box_y), box_w, box_h,
-        boxstyle=f"round,pad=0,rounding_size={corner_r}",
-        facecolor='none', edgecolor='#E5E7EB', linewidth=0.4, zorder=-10, clip_on=False
-    ))
+    if draw_box:
+        ax.add_patch(patches.FancyBboxPatch(
+            (box_x, box_y), box_w, box_h,
+            boxstyle=f"round,pad=0,rounding_size={corner_r}",
+            facecolor='none', edgecolor='#E5E7EB', linewidth=0.4, zorder=-10, clip_on=False
+        ))
     for _txt in ax.texts:
         _txt.set_clip_on(False)
 
@@ -818,7 +821,7 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
 # ==========================================
 # 4. 출력 엔진 
 # ==========================================
-def _render_win_dict(ax, win, mm_to_inch=None, cell_h_mm=None, label_mode='normal', view_w_mm=None):
+def _render_win_dict(ax, win, mm_to_inch=None, cell_h_mm=None, label_mode='normal', view_w_mm=None, draw_box=True, side_tongba_labels=True):
     """win(dict)을 받아 render_window_on_ax를 호출하는 얇은 래퍼."""
     return render_window_on_ax(
         ax, win['순번'], win['unit_w'] * win.get('repeat_count', 1), win['세로(H)'], win['w1'],
@@ -826,7 +829,8 @@ def _render_win_dict(ax, win, mm_to_inch=None, cell_h_mm=None, label_mode='norma
         win.get('핸들높이'), win['vent_dir'], win['has_screen'],
         win['auto_top'], win['auto_bot'], win['auto_left'], win['auto_right'],
         repeat_count=win.get('repeat_count', 1), unit_w=win.get('unit_w'),
-        cell_h_mm=cell_h_mm, mm_to_inch=mm_to_inch, view_w_mm=view_w_mm, label_mode=label_mode
+        cell_h_mm=cell_h_mm, mm_to_inch=mm_to_inch, view_w_mm=view_w_mm, label_mode=label_mode,
+        draw_box=draw_box, side_tongba_labels=side_tongba_labels
     )
 
 
@@ -858,7 +862,14 @@ def _build_render_units(wins, merge_sel):
             continue
         if idx in pair_for:
             lo = wins[pair_for[idx]]
-            units.append({'_merged': True, 'upper': w, 'lower': lo, '순번': f"{w['순번']}+{lo['순번']}"})
+            # ★ [결합 통바 연속] 좌/우 세로통바가 결합 전체를 관통하도록 상/하부에 모두 부여.
+            #   라벨(이름·X)은 상부에만, 하부는 막대만(길이는 하부 높이 자동 → [len] 제거).
+            _strip_len = lambda s: re.sub(r'\[\s*\d+\s*\]', '', str(s or '')).strip()
+            _cl = w.get('auto_left') or lo.get('auto_left') or ''
+            _cr = w.get('auto_right') or lo.get('auto_right') or ''
+            up_c = w.copy();  up_c['auto_left'] = _cl;  up_c['auto_right'] = _cr
+            lo_c = lo.copy(); lo_c['auto_left'] = _strip_len(_cl); lo_c['auto_right'] = _strip_len(_cr)
+            units.append({'_merged': True, 'upper': up_c, 'lower': lo_c, '순번': f"{w['순번']}+{lo['순번']}"})
         else:
             units.append(w)
     return units
@@ -1118,18 +1129,31 @@ def generate_a3_pdf_and_images(draw_data, p_name, s_addr, n_cols=4, items_per_pa
                         fw_l, fh_l = _compute_window_footprint(lo, MM_TO_INCH, 'lower')
                         bwu, bhu = fw_u * MM_TO_INCH, fh_u * MM_TO_INCH
                         bwl, bhl = fw_l * MM_TO_INCH, fh_l * MM_TO_INCH
-                        # 상부: 셀 상단에 붙이고 가로 중앙정렬
                         up_bottom = cursor_y_inch - bhu
+                        lo_bottom = up_bottom - bhl
+
+                        # ★ 상/하 전체를 감싸는 '단일' 외곽 박스 (이중테두리 제거)
+                        _cell_w_mm, _cell_h_mm = fw_mm, (fh_u + fh_l)
+                        ax_bg = fig.add_axes([
+                            cursor_x_inch / PAGE_W_INCH, lo_bottom / PAGE_H_INCH,
+                            col_w_inch / PAGE_W_INCH, (bhu + bhl) / PAGE_H_INCH], zorder=-20)
+                        ax_bg.set_xlim(0, _cell_w_mm); ax_bg.set_ylim(0, _cell_h_mm); ax_bg.axis('off')
+                        _cr = min(_cell_w_mm, _cell_h_mm) * 0.04
+                        ax_bg.add_patch(patches.FancyBboxPatch(
+                            (0, 0), _cell_w_mm, _cell_h_mm,
+                            boxstyle=f"round,pad=0,rounding_size={_cr}",
+                            facecolor='none', edgecolor='#E5E7EB', linewidth=0.4, clip_on=False))
+
+                        # 상부: 셀 상단에 붙이고 가로 중앙정렬 (개별 박스 OFF)
                         ax_u = fig.add_axes([
                             (cursor_x_inch + (col_w_inch - bwu) / 2) / PAGE_W_INCH,
                             up_bottom / PAGE_H_INCH, bwu / PAGE_W_INCH, bhu / PAGE_H_INCH])
-                        _render_win_dict(ax_u, up, mm_to_inch=MM_TO_INCH, label_mode='upper')
-                        # 하부: 상부 바로 아래 맞닿게
-                        lo_bottom = up_bottom - bhl
+                        _render_win_dict(ax_u, up, mm_to_inch=MM_TO_INCH, label_mode='upper', draw_box=False)
+                        # 하부: 상부 바로 아래 맞닿게 (개별 박스 OFF)
                         ax_l = fig.add_axes([
                             (cursor_x_inch + (col_w_inch - bwl) / 2) / PAGE_W_INCH,
                             lo_bottom / PAGE_H_INCH, bwl / PAGE_W_INCH, bhl / PAGE_H_INCH])
-                        _render_win_dict(ax_l, lo, mm_to_inch=MM_TO_INCH, label_mode='lower')
+                        _render_win_dict(ax_l, lo, mm_to_inch=MM_TO_INCH, label_mode='lower', draw_box=False, side_tongba_labels=False)
                     else:
                         ax_left = cursor_x_inch / PAGE_W_INCH
                         ax_bottom = (cursor_y_inch - row_h_inch) / PAGE_H_INCH
