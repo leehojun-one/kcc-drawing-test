@@ -203,8 +203,40 @@ def parse_tongba_input(t_str, default_len):
         })
     return items
 
+def _read_quotation_excel(file_buffer):
+    """견적서 엑셀을 형식 자동판별로 읽는다.
+    - 진짜 .xlsx(zip) → openpyxl
+    - 옛 .xls(OLE) → xlrd (없으면 안내)
+    - 문서보안(DRM) 암호화 → 명확한 안내 (보안 해제 필요)
+    실패 시 ValueError('DRM_LOCKED' / 'NEED_XLRD' / 기타)를 던진다."""
+    import io as _io
+    raw = file_buffer.read()
+    try:
+        file_buffer.seek(0)
+    except Exception:
+        pass
+
+    if raw[:2] == b'PK':  # 표준 xlsx(zip)
+        return pd.read_excel(_io.BytesIO(raw), header=None, engine='openpyxl')
+
+    if raw[:4] == bytes([0xD0, 0xCF, 0x11, 0xE0]):  # OLE 복합문서(.xls 또는 DRM)
+        # 문서보안(DRM): EncryptedPackage 스트림명(UTF-16) 존재 여부로 판별
+        if b'E\x00n\x00c\x00r\x00y\x00p\x00t\x00e\x00d\x00P\x00a\x00c\x00k\x00a\x00g\x00e' in raw:
+            raise ValueError("DRM_LOCKED")
+        try:
+            return pd.read_excel(_io.BytesIO(raw), header=None, engine='xlrd')
+        except ImportError:
+            raise ValueError("NEED_XLRD")
+        except Exception:
+            # OLE이지만 워크북을 못 찾음 → 보안/비표준 가능성
+            raise ValueError("DRM_LOCKED")
+
+    # 기타: 일반 시도
+    return pd.read_excel(_io.BytesIO(raw), header=None)
+
+
 def parse_any_quotation(file_buffer):
-    df_raw = pd.read_excel(file_buffer, header=None)
+    df_raw = _read_quotation_excel(file_buffer)
     
     partner_name, site_address = "", ""
     for r_idx in range(min(15, len(df_raw))):
@@ -864,7 +896,7 @@ def _build_render_units(wins, merge_sel):
             lo = wins[pair_for[idx]]
             # ★ [결합 통바 연속] 좌/우 세로통바가 결합 전체를 관통하도록 상/하부에 모두 부여.
             #   라벨(이름·X)은 상부에만, 하부는 막대만(길이는 하부 높이 자동 → [len] 제거).
-            _strip_len = lambda s: re.sub(r'\[\s*\d+\s*\]', '', str(s or '')).strip()
+            _strip_len = lambda s: re.sub(r'[\[\(]\s*\d+\s*[\]\)]', '', str(s or '')).strip()
             _cl = w.get('auto_left') or lo.get('auto_left') or ''
             _cr = w.get('auto_right') or lo.get('auto_right') or ''
             up_c = w.copy();  up_c['auto_left'] = _cl;  up_c['auto_right'] = _cr
@@ -1224,7 +1256,23 @@ if uploaded_file:
                 del st.session_state[key]
         st.session_state["last_file_id"] = uploaded_file.file_id
         
-    draw_data, tongba_bom, unused_tongbas, overall_scale_bounds, ext_partner, ext_address = parse_any_quotation(uploaded_file)
+    try:
+        draw_data, tongba_bom, unused_tongbas, overall_scale_bounds, ext_partner, ext_address = parse_any_quotation(uploaded_file)
+    except ValueError as _e:
+        _code = str(_e)
+        if _code == "DRM_LOCKED":
+            st.error(
+                "🔒 이 견적서는 **문서보안(DRM)** 이 걸려 있어 읽을 수 없습니다.\n\n"
+                "KCC GLS에서 받은 파일에 보안이 적용된 경우예요. 아래 중 하나로 해제 후 다시 올려주세요:\n"
+                "1) 파일을 열고 **다른 이름으로 저장 → '보안 해제/일반 문서'** 로 저장\n"
+                "2) 내용을 복사해 **새 빈 엑셀**에 붙여넣어 저장")
+        elif _code == "NEED_XLRD":
+            st.error(
+                "이 견적서는 **옛 .xls 형식**입니다. 읽으려면 `xlrd` 라이브러리가 필요해요.\n\n"
+                "Streamlit Cloud라면 **requirements.txt 에 `xlrd` 한 줄을 추가**하고 재배포하면 해결됩니다.")
+        else:
+            st.error(f"견적서를 읽지 못했습니다: {_code}")
+        st.stop()
 
     
     tab1, tab2 = st.tabs(["💻 1단계: 도면 작업대", "🖨️ 2단계: 출력 및 카톡 전송 센터"])
