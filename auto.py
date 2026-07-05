@@ -446,7 +446,7 @@ def parse_any_quotation(file_buffer):
 # ==========================================
 # 3. 렌더링 엔진
 # ==========================================
-def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, glass_in, glass_out, handle_h, vent_dir, has_screen, t_top_str, t_bot_str, t_left_str, t_right_str, scale_bounds=None, repeat_count=1, unit_w=None, cell_h_mm=None, mm_to_inch=None, view_w_mm=None, label_mode='normal', draw_box=True, side_tongba_labels=True):
+def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, glass_in, glass_out, handle_h, vent_dir, has_screen, t_top_str, t_bot_str, t_left_str, t_right_str, scale_bounds=None, repeat_count=1, unit_w=None, cell_h_mm=None, mm_to_inch=None, view_w_mm=None, label_mode='normal', draw_box=True, side_tongba_labels=True, topbot_tongba_labels=True):
     
     t_upper = str(win_type).upper().replace(" ", "")
     # ★ 엑셀에서 'ㄷ'자 공틀이 그리스 문자 Π(U+03A0)로 표기되는 경우가 있어 '통바ㄷ'로 정규화 (아래가 뚫린 사각형)
@@ -614,8 +614,9 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         start_x = (w - t_len) / 2 
         ax.add_patch(patches.Rectangle((start_x, current_y), t_len, thick_v, facecolor=t['color'], edgecolor='black', linewidth=0.8))
         
-        full_text = f"{t['name']} ({t['len']})" + (f" X{t['qty']}" if t['qty'] > 1 else "")  # ★ 상/하단은 통바 안 인라인 표기 (외부라벨 간섭 방지)
-        ax.text(w/2, current_y + thick_v/2, full_text, ha='center', va='center', fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
+        if topbot_tongba_labels:
+            full_text = f"{t['name']} ({t['len']})" + (f" X{t['qty']}" if t['qty'] > 1 else "")  # ★ 상/하단은 통바 안 인라인 표기 (외부라벨 간섭 방지)
+            ax.text(w/2, current_y + thick_v/2, full_text, ha='center', va='center', fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
         current_y += thick_v
 
     # 하부 통바
@@ -627,8 +628,9 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         start_x = (w - t_len) / 2 
         ax.add_patch(patches.Rectangle((start_x, current_y), t_len, thick_v, facecolor=t['color'], edgecolor='black', linewidth=0.8))
         
-        full_text = f"{t['name']} ({t['len']})" + (f" X{t['qty']}" if t['qty'] > 1 else "")  # ★ 상/하단은 통바 안 인라인 표기 (외부라벨 간섭 방지)
-        ax.text(w/2, current_y + thick_v/2, full_text, ha='center', va='center', fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
+        if topbot_tongba_labels:
+            full_text = f"{t['name']} ({t['len']})" + (f" X{t['qty']}" if t['qty'] > 1 else "")  # ★ 상/하단은 통바 안 인라인 표기 (외부라벨 간섭 방지)
+            ax.text(w/2, current_y + thick_v/2, full_text, ha='center', va='center', fontsize=TEXT_SIZE, color=t['text_color'], fontweight='bold', stretch='condensed')
 
     # 좌측 통바 — ★ [요청5] 통바 길이가 본체 H와 다를 때, 도면 상부 라인에 맞춰 정렬하고 아래로 내려오게 배치
     current_x = 0
@@ -804,14 +806,54 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
 
     box_x = content_left - SIDE_PAD - text_extra_halfwidth - handle_label_extra_right / 2
     box_w = (content_right - content_left) + SIDE_PAD * 2 + text_extra_halfwidth * 2 + handle_label_extra_right
-    # ★ 박스 전체 = 헤더공간 + 본체(통바포함) + 호흡여백(상하) + 사이즈: 모두 mm 단위로 합산
-    # ★ [결합기능] label_mode별 박스 범위 — 라벨 실제 상/하단에 딱 맞춰 빈 공간 제거(상부정렬 보장)
+
+    # ★ [가로결합] 좌/우 라벨은 본체 '옆'(세로 중앙)에 세로 스택으로 배치 (치수 확정 후 처리)
+    _lbl_box_left = None
+    _lbl_box_right = None
+    _stack_h = 0
+    _lbl_gap = _h_mm(11) * 0.6
+    if label_mode in ('left', 'right'):
+        _cy = (body_top + body_bot) / 2
+        _lbl_stack_gap = _h_mm(11) * 0.3
+        _title_h = _h_mm(11, 1.3) * 2
+        _glass_h = _h_mm(9, 1.4) if glass_text else 0
+        _size_h = _h_mm(11, 1.2)
+        _stack_h = _title_h + _lbl_stack_gap + ((_glass_h + _lbl_stack_gap) if glass_text else 0) + _size_h
+        _lbl_block_w = max(title_hw * 2, glass_hw * 2, size_hw * 2)
+        _top_y = _cy + _stack_h / 2
+        if label_mode == 'left':
+            _lx, _ha = content_left - _lbl_gap, 'right'
+        else:
+            _lx, _ha = content_right + _lbl_gap, 'left'
+        # 제목(위) → 유리 → 사이즈(아래)
+        ax.text(_lx, _top_y, top_title_text, ha=_ha, va='top', fontsize=11, fontweight='bold', linespacing=1.3)
+        _yy = _top_y - _title_h - _lbl_stack_gap
+        if glass_text:
+            ax.text(_lx, _yy, glass_text, ha=_ha, va='top', fontsize=9, fontweight='bold', color=glass_color)
+            _yy -= (_glass_h + _lbl_stack_gap)
+        ax.text(_lx, _yy, f"{w} x {h}", ha=_ha, va='top', fontsize=11, fontweight='bold', color='#1E3A8A')
+        if label_mode == 'left':
+            _lbl_box_left = content_left - _lbl_gap - _lbl_block_w
+        else:
+            _lbl_box_right = content_right + _lbl_gap + _lbl_block_w
+
+    # ★ [결합기능] label_mode별 박스 범위
     if label_mode == 'upper':
         box_top = _lbl_box_top if _lbl_box_top is not None else (body_top + header_h_mm)
         box_bot = body_bot
     elif label_mode == 'lower':
         box_top = body_top
         box_bot = _lbl_box_bot if _lbl_box_bot is not None else (body_bot - footer_h_mm)
+    elif label_mode in ('left', 'right'):
+        _cy = (body_top + body_bot) / 2
+        box_top = max(body_top, _cy + _stack_h / 2) + _lbl_gap
+        box_bot = min(body_bot, _cy - _stack_h / 2) - _lbl_gap
+        if label_mode == 'left':
+            box_x = _lbl_box_left - SIDE_PAD * 0.5   # 바깥(왼)엔 여백, 안(오른=본체끝)은 딱 맞춤
+            box_w = content_right - box_x
+        else:
+            box_x = content_left                      # 안(왼=본체끝) 딱 맞춤
+            box_w = (_lbl_box_right + SIDE_PAD * 0.5) - box_x
     else:
         box_top = body_top + header_h_mm
         box_bot = body_bot - footer_h_mm
@@ -853,7 +895,7 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
 # ==========================================
 # 4. 출력 엔진 
 # ==========================================
-def _render_win_dict(ax, win, mm_to_inch=None, cell_h_mm=None, label_mode='normal', view_w_mm=None, draw_box=True, side_tongba_labels=True):
+def _render_win_dict(ax, win, mm_to_inch=None, cell_h_mm=None, label_mode='normal', view_w_mm=None, draw_box=True, side_tongba_labels=True, topbot_tongba_labels=True):
     """win(dict)을 받아 render_window_on_ax를 호출하는 얇은 래퍼."""
     return render_window_on_ax(
         ax, win['순번'], win['unit_w'] * win.get('repeat_count', 1), win['세로(H)'], win['w1'],
@@ -862,20 +904,26 @@ def _render_win_dict(ax, win, mm_to_inch=None, cell_h_mm=None, label_mode='norma
         win['auto_top'], win['auto_bot'], win['auto_left'], win['auto_right'],
         repeat_count=win.get('repeat_count', 1), unit_w=win.get('unit_w'),
         cell_h_mm=cell_h_mm, mm_to_inch=mm_to_inch, view_w_mm=view_w_mm, label_mode=label_mode,
-        draw_box=draw_box, side_tongba_labels=side_tongba_labels
+        draw_box=draw_box, side_tongba_labels=side_tongba_labels, topbot_tongba_labels=topbot_tongba_labels
     )
 
 
-def _build_render_units(wins, merge_sel):
-    """결합 선택(merge_sel: uid→하부로 붙일 순번)을 반영해 렌더 단위 리스트를 만든다.
-    - 단독 창은 그대로, 결합 쌍은 {'_merged': True, 'upper': 상부win, 'lower': 하부win} 로 묶는다.
-    - 한 창이 동시에 상부이면서 누군가의 하부가 되는 충돌은 방지(먼저 잡힌 것 우선)."""
+def _build_render_units(wins, merge_sel, hmerge_sel=None):
+    """결합 선택을 반영해 렌더 단위 리스트를 만든다.
+    - merge_sel(uid→아래 붙일 순번): 세로결합 {'_merged', 'upper', 'lower'}
+    - hmerge_sel(uid→오른쪽 붙일 순번): 가로결합 {'_hmerged', 'left', 'right'}
+    - 한 창이 여러 결합에 중복 소비되지 않도록 방지(세로 우선)."""
+    hmerge_sel = hmerge_sel or {}
     by_seq = {}
     for idx, w in enumerate(wins):
         by_seq.setdefault(w['순번'], idx)
+    _strip_len = lambda s: re.sub(r'[\[\(]\s*\d+\s*[\]\)]', '', str(s or '')).strip()
 
-    lower_idx_set = set()   # 누군가의 하부로 소비된 창
-    pair_for = {}           # 상부 idx → 하부 idx
+    consumed = set()   # 하부/우측으로 소비된 창
+    vpair = {}         # 상부 idx → 하부 idx (세로)
+    hpair = {}         # 좌 idx → 우 idx (가로)
+
+    # 1) 세로결합 먼저
     for idx, w in enumerate(wins):
         tgt = merge_sel.get(idx)
         if tgt in (None, "없음", ""):
@@ -883,25 +931,46 @@ def _build_render_units(wins, merge_sel):
         t_idx = by_seq.get(tgt)
         if t_idx is None or t_idx == idx:
             continue
-        if t_idx in lower_idx_set or t_idx in pair_for or idx in lower_idx_set:
-            continue  # 이미 사용된 창은 건너뜀
-        pair_for[idx] = t_idx
-        lower_idx_set.add(t_idx)
+        if t_idx in consumed or t_idx in vpair or idx in consumed:
+            continue
+        vpair[idx] = t_idx
+        consumed.add(t_idx)
+
+    # 2) 가로결합 (이미 세로결합에 쓰인 창은 제외)
+    for idx, w in enumerate(wins):
+        if idx in consumed or idx in vpair:
+            continue
+        tgt = hmerge_sel.get(idx)
+        if tgt in (None, "없음", ""):
+            continue
+        t_idx = by_seq.get(tgt)
+        if t_idx is None or t_idx == idx:
+            continue
+        if t_idx in consumed or t_idx in vpair or t_idx in hpair:
+            continue
+        hpair[idx] = t_idx
+        consumed.add(t_idx)
 
     units = []
     for idx, w in enumerate(wins):
-        if idx in lower_idx_set:
+        if idx in consumed:
             continue
-        if idx in pair_for:
-            lo = wins[pair_for[idx]]
-            # ★ [결합 통바 연속] 좌/우 세로통바가 결합 전체를 관통하도록 상/하부에 모두 부여.
-            #   라벨(이름·X)은 상부에만, 하부는 막대만(길이는 하부 높이 자동 → [len] 제거).
-            _strip_len = lambda s: re.sub(r'[\[\(]\s*\d+\s*[\]\)]', '', str(s or '')).strip()
+        if idx in vpair:
+            lo = wins[vpair[idx]]
+            # ★ [세로결합 통바 연속] 좌/우 세로통바가 결합 전체를 관통 (라벨은 상부만)
             _cl = w.get('auto_left') or lo.get('auto_left') or ''
             _cr = w.get('auto_right') or lo.get('auto_right') or ''
             up_c = w.copy();  up_c['auto_left'] = _cl;  up_c['auto_right'] = _cr
             lo_c = lo.copy(); lo_c['auto_left'] = _strip_len(_cl); lo_c['auto_right'] = _strip_len(_cr)
             units.append({'_merged': True, 'upper': up_c, 'lower': lo_c, '순번': f"{w['순번']}+{lo['순번']}"})
+        elif idx in hpair:
+            ri = wins[hpair[idx]]
+            # ★ [가로결합 통바 연속] 상/하 가로통바가 결합 전체를 관통 (라벨은 좌측창만)
+            _ct = w.get('auto_top') or ri.get('auto_top') or ''
+            _cb = w.get('auto_bot') or ri.get('auto_bot') or ''
+            l_c = w.copy();  l_c['auto_top'] = _ct;  l_c['auto_bot'] = _cb
+            r_c = ri.copy(); r_c['auto_top'] = _strip_len(_ct); r_c['auto_bot'] = _strip_len(_cb)
+            units.append({'_hmerged': True, 'left': l_c, 'right': r_c, '순번': f"{w['순번']}+{ri['순번']}"})
         else:
             units.append(w)
     return units
@@ -915,11 +984,16 @@ def _compute_window_footprint(win, mm_to_inch=None, label_mode='normal'):
     label_mode(normal/upper/lower)는 결합도면용 — render와 동일한 한쪽몰림 박스높이를 반영한다.
     mm_to_inch가 주어지면(2차 계산) 실측 기반 정확한 텍스트 크기를 반영하고,
     없으면(1차 추정) 합리적 기본 스케일로 근사한다."""
-    # ★ [결합기능] 결합 단위는 상/하 footprint(각 모드)를 세로로 합치고, 폭은 더 넓은 쪽으로
+    # ★ [세로결합] 상/하 footprint를 세로로 합치고, 폭은 더 넓은 쪽으로
     if win.get('_merged'):
         fw_u, fh_u = _compute_window_footprint(win['upper'], mm_to_inch, 'upper')
         fw_l, fh_l = _compute_window_footprint(win['lower'], mm_to_inch, 'lower')
         return max(fw_u, fw_l), fh_u + fh_l
+    # ★ [가로결합] 좌/우 footprint를 가로로 합치고, 높이는 더 높은 쪽으로
+    if win.get('_hmerged'):
+        fw_L, fh_L = _compute_window_footprint(win['left'], mm_to_inch, 'left')
+        fw_R, fh_R = _compute_window_footprint(win['right'], mm_to_inch, 'right')
+        return fw_L + fw_R, max(fh_L, fh_R)
 
     t_top_list = parse_tongba_input(win['auto_top'], win['가로(W)'])
     t_bot_list = parse_tongba_input(win['auto_bot'], win['가로(W)'])
@@ -967,7 +1041,7 @@ def _compute_window_footprint(win, mm_to_inch=None, label_mode='normal'):
     text_extra_halfwidth = max(0, text_overflow - SIDE_PAD)
 
     footprint_w = (w_val + total_left + total_right) + SIDE_PAD * 2 + text_extra_halfwidth * 2 + handle_label_extra_right
-    # ★ [결합기능] label_mode별 세로 높이 — render의 _lbl_box_top/_lbl_box_bot와 동일 공식
+    # ★ [결합기능] label_mode별 크기 — render의 박스 공식과 정확히 일치시킴
     _gap_fp = _h_mm(11) * 0.5
     if label_mode == 'upper':
         _above = _gap_fp + _h_mm(11, 1.2) + (_h_mm(9, 1.4) if glass_text else 0) + _h_mm(11, 1.3) * 2 + _h_mm(9, 1.2) + _h_mm(9) * 0.5
@@ -975,6 +1049,18 @@ def _compute_window_footprint(win, mm_to_inch=None, label_mode='normal'):
     elif label_mode == 'lower':
         _below = _gap_fp + _h_mm(11, 1.2) + _h_mm(11, 1.3) * 2 + (_h_mm(9, 1.2) if glass_text else 0) + _h_mm(11) * 0.5
         footprint_h = (h_val + total_top + total_bot) + _below
+    elif label_mode in ('left', 'right'):
+        _lbl_gap = _h_mm(11) * 0.6
+        _lbl_stack_gap = _h_mm(11) * 0.3
+        _title_h = _h_mm(11, 1.3) * 2
+        _glass_h = _h_mm(9, 1.4) if glass_text else 0
+        _size_h = _h_mm(11, 1.2)
+        _stack_h = _title_h + _lbl_stack_gap + ((_glass_h + _lbl_stack_gap) if glass_text else 0) + _size_h
+        _lbl_block_w = max(title_hw * 2, glass_hw * 2, size_hw * 2)
+        body_w_full = (w_val + total_left + total_right)
+        body_h_full = (h_val + total_top + total_bot)
+        footprint_w = body_w_full + _lbl_gap + _lbl_block_w + SIDE_PAD * 0.5
+        footprint_h = max(body_h_full, _stack_h) + _lbl_gap * 2
     else:
         footprint_h = (h_val + total_top + total_bot) + header_h_mm + footer_h_mm
     return footprint_w, footprint_h
@@ -1186,6 +1272,37 @@ def generate_a3_pdf_and_images(draw_data, p_name, s_addr, n_cols=4, items_per_pa
                             (cursor_x_inch + (col_w_inch - bwl) / 2) / PAGE_W_INCH,
                             lo_bottom / PAGE_H_INCH, bwl / PAGE_W_INCH, bhl / PAGE_H_INCH])
                         _render_win_dict(ax_l, lo, mm_to_inch=MM_TO_INCH, label_mode='lower', draw_box=False, side_tongba_labels=False)
+                    elif win.get('_hmerged'):
+                        # ★ [가로결합] 좌/우를 한 셀 안에 가로로 맞닿게 배치 (좌=라벨 왼쪽, 우=라벨 오른쪽)
+                        lft, rgt = win['left'], win['right']
+                        fw_L, fh_L = _compute_window_footprint(lft, MM_TO_INCH, 'left')
+                        fw_R, fh_R = _compute_window_footprint(rgt, MM_TO_INCH, 'right')
+                        bwL, bhL = fw_L * MM_TO_INCH, fh_L * MM_TO_INCH
+                        bwR, bhR = fw_R * MM_TO_INCH, fh_R * MM_TO_INCH
+                        cell_h = max(bhL, bhR)
+
+                        # ★ 좌/우 전체를 감싸는 '단일' 외곽 박스
+                        _cell_w_mm, _cell_h_mm = fw_mm, max(fh_L, fh_R)
+                        ax_bg = fig.add_axes([
+                            cursor_x_inch / PAGE_W_INCH, (cursor_y_inch - cell_h) / PAGE_H_INCH,
+                            col_w_inch / PAGE_W_INCH, cell_h / PAGE_H_INCH], zorder=-20)
+                        ax_bg.set_xlim(0, _cell_w_mm); ax_bg.set_ylim(0, _cell_h_mm); ax_bg.axis('off')
+                        _cr = min(_cell_w_mm, _cell_h_mm) * 0.04
+                        ax_bg.add_patch(patches.FancyBboxPatch(
+                            (0, 0), _cell_w_mm, _cell_h_mm,
+                            boxstyle=f"round,pad=0,rounding_size={_cr}",
+                            facecolor='none', edgecolor='#E5E7EB', linewidth=0.4, clip_on=False))
+
+                        # 좌측: 셀 좌단에 붙이고 상단 정렬 (개별 박스 OFF)
+                        ax_L = fig.add_axes([
+                            cursor_x_inch / PAGE_W_INCH, (cursor_y_inch - bhL) / PAGE_H_INCH,
+                            bwL / PAGE_W_INCH, bhL / PAGE_H_INCH])
+                        _render_win_dict(ax_L, lft, mm_to_inch=MM_TO_INCH, label_mode='left', draw_box=False)
+                        # 우측: 좌측 바로 오른쪽 맞닿게 (개별 박스 OFF, 상/하 통바 라벨 OFF → 연속)
+                        ax_R = fig.add_axes([
+                            (cursor_x_inch + bwL) / PAGE_W_INCH, (cursor_y_inch - bhR) / PAGE_H_INCH,
+                            bwR / PAGE_W_INCH, bhR / PAGE_H_INCH])
+                        _render_win_dict(ax_R, rgt, mm_to_inch=MM_TO_INCH, label_mode='right', draw_box=False, topbot_tongba_labels=False)
                     else:
                         ax_left = cursor_x_inch / PAGE_W_INCH
                         ax_bottom = (cursor_y_inch - row_h_inch) / PAGE_H_INCH
@@ -1518,6 +1635,12 @@ if uploaded_file:
                                 options=["없음"] + _other_seqs,
                                 key=f"merge_below_{uid}",
                             )
+                            # ★ [가로결합] 이 도면 '오른쪽에' 붙일 순번 선택 (가로 결합)
+                            st.selectbox(
+                                "↔️ 가로결합 (이 도면 오른쪽에 붙일 순번)",
+                                options=["없음"] + _other_seqs,
+                                key=f"merge_right_{uid}",
+                            )
 
                             st.divider()
 
@@ -1566,9 +1689,10 @@ if uploaded_file:
                     win_copy['auto_right'] = st.session_state.get(f"saved_right_{uid}", win['auto_right'])
                     final_draw_data.append(win_copy)
 
-                # ★ [결합기능] 작업대에서 고른 세로결합 선택을 반영해 렌더 단위로 묶는다
+                # ★ [결합기능] 작업대에서 고른 세로/가로 결합 선택을 반영해 렌더 단위로 묶는다
                 merge_sel = {uid: st.session_state.get(f"merge_below_{uid}", "없음") for uid in range(len(draw_data))}
-                render_units = _build_render_units(final_draw_data, merge_sel)
+                hmerge_sel = {uid: st.session_state.get(f"merge_right_{uid}", "없음") for uid in range(len(draw_data))}
+                render_units = _build_render_units(final_draw_data, merge_sel, hmerge_sel)
 
                 pdf_bytes, img_bytes_list, combined_img_bytes = generate_a3_pdf_and_images(render_units, partner_input, address_input, scale_ratio=chosen_scale)
                 log_usage(partner_input, address_input, len(final_draw_data))
