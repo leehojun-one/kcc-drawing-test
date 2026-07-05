@@ -1254,6 +1254,7 @@ if uploaded_file:
         for key in list(st.session_state.keys()):
             if key.startswith("saved_") or key.startswith("status_"):
                 del st.session_state[key]
+        st.session_state["manual_products"] = []   # ★ [직접입력] 새 견적서 로드 시 수동추가 제품 초기화
         st.session_state["last_file_id"] = uploaded_file.file_id
         
     try:
@@ -1273,6 +1274,17 @@ if uploaded_file:
         else:
             st.error(f"견적서를 읽지 못했습니다: {_code}")
         st.stop()
+
+    # ★ [직접입력] 세션에 저장된 수동 추가 제품(터닝도어 등)을 draw_data 뒤에 이어붙인다.
+    #    순번은 파싱된 창들의 최대 순번 다음 번호로 자동 부여.
+    _manual_list = st.session_state.get("manual_products", [])
+    if _manual_list:
+        _nums = [w['순번'] for w in draw_data if isinstance(w['순번'], (int, float))]
+        _base_seq = int(max(_nums)) if _nums else 0
+        for _mi, _mp in enumerate(_manual_list):
+            _mp2 = dict(_mp)
+            _mp2['순번'] = _base_seq + _mi + 1
+            draw_data.append(_mp2)
 
     
     tab1, tab2 = st.tabs(["💻 1단계: 도면 작업대", "🖨️ 2단계: 출력 및 카톡 전송 센터"])
@@ -1362,6 +1374,47 @@ if uploaded_file:
                 
         with col_main:
             st.subheader("🤖 프리미엄 카탈로그 뷰: 통바 편집 및 확인")
+
+            # ★ [직접입력] 견적서에 없는 제품(터닝도어)을 작업대에 직접 추가
+            with st.expander("➕ 터닝도어 직접입력 추가 (HW_DF140)", expanded=False):
+                st.caption("견적서 라인업에 없는 터닝도어를 작업대에 직접 추가합니다. (제품명 고정: HW_DF140)")
+                _dc1, _dc2 = st.columns(2)
+                with _dc1:
+                    _d_loc = st.text_input("설치위치", key="td_loc", placeholder="예: 안방 발코니")
+                    _d_w = st.number_input("가로 W (mm)", min_value=100, max_value=6000, value=900, step=10, key="td_w")
+                    _d_glass = st.selectbox("유리사양", [
+                        "24T 로이+투명", "24T 미스트+로이", "24T 모루+로이",
+                        "24T 투명+투명", "24T 미스트+투명", "24T 모루+투명"], key="td_glass")
+                with _dc2:
+                    _d_h = st.number_input("높이 H (mm)", min_value=100, max_value=3000, value=2100, step=10, key="td_h")
+                    _d_shape = st.radio("창형태", ["미는문", "당기는문"], horizontal=True, key="td_shape")
+                    _d_handle = st.radio("핸들위치", ["좌핸들우힌지", "우핸들좌힌지"], key="td_handle")
+                if st.button("➕ 작업대에 추가", type="primary", key="td_add"):
+                    st.session_state.setdefault("manual_products", [])
+                    st.session_state["manual_products"].append({
+                        '순번': 0,                       # 병합 시 자동 재부여
+                        '위치': (_d_loc or "직접입력"),
+                        '제품명': "HW_DF140",
+                        '모델명': "HW_DF140",            # 헤더 표기: HW_DF140 / 미는문
+                        '형태': _d_shape,                # 미는문/당기는문 (도어 감지)
+                        'glass_in': _d_glass, 'glass_out': "",
+                        '가로(W)': int(_d_w), '세로(H)': int(_d_h), 'w1': 0,
+                        '핸들높이': None, 'vent_dir': _d_handle, 'has_screen': False,
+                        'auto_top': "", 'auto_bot': "", 'auto_left': "", 'auto_right': "",
+                        'qty': 1, 'repeat_count': 1, 'unit_w': int(_d_w),
+                        '_manual': True,
+                    })
+                    st.rerun()
+
+                _mp_list = st.session_state.get("manual_products", [])
+                if _mp_list:
+                    st.markdown("**추가된 직접입력 제품**")
+                    for _mi, _mp in enumerate(_mp_list):
+                        _cc1, _cc2 = st.columns([6, 1])
+                        _cc1.write(f"• {_mp['위치']} · {_mp['제품명']} / {_mp['형태']} · {_mp['가로(W)']}×{_mp['세로(H)']} · {_mp['glass_in']} · {_mp['vent_dir']}")
+                        if _cc2.button("🗑️", key=f"td_del_{_mi}"):
+                            st.session_state["manual_products"].pop(_mi)
+                            st.rerun()
 
             # ★★★ [요청2] 작업대(편집) 미리보기를 '실제 출력과 동일한 배율'로 보여준다.
             # 직원들이 여기서 통바를 수정하는데, 편집 화면과 최종 출력의 도면 크기가 다르면 혼선이 오므로
