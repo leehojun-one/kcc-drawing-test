@@ -1,6 +1,8 @@
 streamlit
 pandas
 matplotlib
-openpyxl
 gspread
 google-auth
+Pillow
+openpyxl
+xlrd
