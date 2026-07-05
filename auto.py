@@ -721,7 +721,7 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
             ax.text(w/2, _y, glass_text, ha='center', va='top', fontsize=9, fontweight='bold', color=glass_color)
             _y -= _lh(9, 1.2)
         _lbl_box_bot = _y - _lh(11) * 0.5
-    else:
+    elif label_mode not in ('left', 'right'):
         ax.text(w/2, h + 400, top_title_text, ha='center', va='bottom', fontsize=11, fontweight='bold', linespacing=1.3)
         if glass_text:
             ax.text(w/2, h + 200, glass_text, ha='center', va='bottom', fontsize=9, fontweight='bold', color=glass_color)
@@ -807,22 +807,19 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
     box_x = content_left - SIDE_PAD - text_extra_halfwidth - handle_label_extra_right / 2
     box_w = (content_right - content_left) + SIDE_PAD * 2 + text_extra_halfwidth * 2 + handle_label_extra_right
 
-    # ★ [가로결합] 좌/우 라벨은 본체 '옆'에 세로 스택으로 배치하되, 상단(헤더존)에 앵커 → 상부 정렬
+    # ★ [가로결합] 좌/우 부착창 라벨은 본체 '옆 세로중앙'에 세로 스택으로 배치
     _lbl_box_left = None
     _lbl_box_right = None
-    _stack_h = 0
-    _stack_bottom = body_bot
     _lbl_gap = _h_mm(11) * 0.6
     if label_mode in ('left', 'right'):
+        _cy = (body_top + body_bot) / 2   # 세로 중앙
         _lbl_stack_gap = _h_mm(11) * 0.3
         _title_h = _h_mm(11, 1.3) * 2
         _glass_h = _h_mm(9, 1.4) if glass_text else 0
         _size_h = _h_mm(11, 1.2)
         _stack_h = _title_h + _lbl_stack_gap + ((_glass_h + _lbl_stack_gap) if glass_text else 0) + _size_h
         _lbl_block_w = max(title_hw * 2, glass_hw * 2, size_hw * 2)
-        # 라벨 스택 top을 헤더존 상단(= box_top)에 맞춤 → 단독창 헤더와 동일 높이에서 시작
-        _hz_top = body_top + header_h_mm
-        _stack_top = _hz_top - (_h_mm(9, 1.2) + _h_mm(9) * 0.5)
+        _stack_top = _cy + _stack_h / 2   # 중앙 기준으로 스택 배치
         if label_mode == 'left':
             _lx, _ha = content_left - _lbl_gap, 'right'
         else:
@@ -834,7 +831,6 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
             ax.text(_lx, _yy, glass_text, ha=_ha, va='top', fontsize=9, fontweight='bold', color=glass_color)
             _yy -= (_glass_h + _lbl_stack_gap)
         ax.text(_lx, _yy, f"{w} x {h}", ha=_ha, va='top', fontsize=11, fontweight='bold', color='#1E3A8A')
-        _stack_bottom = _yy - _size_h
         if label_mode == 'left':
             _lbl_box_left = content_left - _lbl_gap - _lbl_block_w
         else:
@@ -848,14 +844,20 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
         box_top = body_top
         box_bot = _lbl_box_bot if _lbl_box_bot is not None else (body_bot - footer_h_mm)
     elif label_mode in ('left', 'right'):
-        box_top = body_top + header_h_mm                      # 상부정렬 (단독창과 동일 box_top)
-        box_bot = min(body_bot, _stack_bottom) - _lbl_gap     # 라벨이 본체보다 길면 아래로 확장
+        box_top = body_top + header_h_mm     # 상/하부 정렬은 단독창과 동일
+        box_bot = body_bot - footer_h_mm
         if label_mode == 'left':
-            box_x = _lbl_box_left - SIDE_PAD * 0.5   # 바깥(왼)엔 여백, 안(오른=본체끝)은 딱 맞춤
+            box_x = _lbl_box_left - SIDE_PAD * 0.5   # 바깥(왼)엔 여백, 안(오른=본체끝)은 딱 맞춤 → 메인과 접함
             box_w = content_right - box_x
         else:
-            box_x = content_left                      # 안(왼=본체끝) 딱 맞춤
+            box_x = content_left                      # 안(왼=본체끝) 딱 맞춤 → 메인과 접함
             box_w = (_lbl_box_right + SIDE_PAD * 0.5) - box_x
+    elif label_mode == 'hmain':
+        # 가로결합 메인창: 헤더 위(normal), 박스는 가로로 본체끝에 딱 맞춤 → 좌/우 부착창과 접함
+        box_top = body_top + header_h_mm
+        box_bot = body_bot - footer_h_mm
+        box_x = content_left
+        box_w = content_right - content_left
     else:
         box_top = body_top + header_h_mm
         box_bot = body_bot - footer_h_mm
@@ -913,8 +915,8 @@ def _render_win_dict(ax, win, mm_to_inch=None, cell_h_mm=None, label_mode='norma
 def _build_render_units(wins, merge_sel, hmerge_sel=None, hmerge_left_sel=None):
     """결합 선택을 반영해 렌더 단위 리스트를 만든다.
     - merge_sel(uid→아래 붙일 순번): 세로결합 {'_merged', 'upper', 'lower'}
-    - hmerge_sel(uid→오른쪽 붙일 순번): 가로결합 {'_hmerged', 'left', 'right'}
-    - hmerge_left_sel(uid→왼쪽 붙일 순번): 가로결합(좌) → (left=tgt, right=uid)
+    - hmerge_sel/hmerge_left_sel(uid→오른쪽/왼쪽 붙일 순번): 가로결합.
+      설정한 창이 '메인'이 되고, 좌/우로 최대 2개까지 부착 → {'_hmerged', 'main', 'left', 'right'} (최대 3창).
     - 한 창이 여러 결합에 중복 소비되지 않도록 방지(세로 우선)."""
     hmerge_sel = hmerge_sel or {}
     hmerge_left_sel = hmerge_left_sel or {}
@@ -923,12 +925,9 @@ def _build_render_units(wins, merge_sel, hmerge_sel=None, hmerge_left_sel=None):
         by_seq.setdefault(w['순번'], idx)
     _strip_len = lambda s: re.sub(r'[\[\(]\s*\d+\s*[\]\)]', '', str(s or '')).strip()
 
-    consumed = set()   # 하부/우측으로 소비된 창
+    consumed = set()   # 하부/좌/우로 소비된 창
     vpair = {}         # 상부 idx → 하부 idx (세로)
-    hpair = {}         # 좌 idx → 우 idx (가로)
-
-    def _busy(i):
-        return i in consumed or i in vpair or i in hpair or i in hpair.values()
+    hunit = {}         # 메인 idx → (좌 idx|None, 우 idx|None) (가로, 최대 3창)
 
     # 1) 세로결합 먼저
     for idx, w in enumerate(wins):
@@ -936,42 +935,26 @@ def _build_render_units(wins, merge_sel, hmerge_sel=None, hmerge_left_sel=None):
         if tgt in (None, "없음", ""):
             continue
         t_idx = by_seq.get(tgt)
-        if t_idx is None or t_idx == idx:
-            continue
-        if t_idx in consumed or t_idx in vpair or idx in consumed:
+        if t_idx is None or t_idx == idx or t_idx in consumed or t_idx in vpair or idx in consumed:
             continue
         vpair[idx] = t_idx
         consumed.add(t_idx)
 
-    # 2) 가로결합(오른쪽): left=idx, right=tgt
+    # 2) 가로결합: 이 창(메인)이 좌/우로 최대 2개 부착
+    def _valid(t_idx, main_idx, *exclude):
+        return (t_idx is not None and t_idx != main_idx and t_idx not in consumed
+                and t_idx not in vpair and t_idx not in hunit and t_idx not in exclude)
     for idx, w in enumerate(wins):
-        if idx in consumed or idx in vpair:
+        if idx in consumed or idx in vpair or idx in hunit:
             continue
-        tgt = hmerge_sel.get(idx)
-        if tgt in (None, "없음", ""):
-            continue
-        t_idx = by_seq.get(tgt)
-        if t_idx is None or t_idx == idx or idx in hpair:
-            continue
-        if _busy(t_idx):
-            continue
-        hpair[idx] = t_idx
-        consumed.add(t_idx)
-
-    # 3) 가로결합(왼쪽): left=tgt, right=idx
-    for idx, w in enumerate(wins):
-        if idx in consumed or idx in vpair or idx in hpair:
-            continue
-        tgt = hmerge_left_sel.get(idx)
-        if tgt in (None, "없음", ""):
-            continue
-        t_idx = by_seq.get(tgt)
-        if t_idx is None or t_idx == idx or t_idx in hpair:
-            continue
-        if _busy(t_idx):
-            continue
-        hpair[t_idx] = idx
-        consumed.add(idx)
+        L = by_seq.get(hmerge_left_sel.get(idx))
+        R = by_seq.get(hmerge_sel.get(idx))
+        Lv = L if _valid(L, idx) else None
+        Rv = R if _valid(R, idx, Lv) else None
+        if Lv is not None or Rv is not None:
+            hunit[idx] = (Lv, Rv)
+            if Lv is not None: consumed.add(Lv)
+            if Rv is not None: consumed.add(Rv)
 
     units = []
     for idx, w in enumerate(wins):
@@ -985,14 +968,24 @@ def _build_render_units(wins, merge_sel, hmerge_sel=None, hmerge_left_sel=None):
             up_c = w.copy();  up_c['auto_left'] = _cl;  up_c['auto_right'] = _cr
             lo_c = lo.copy(); lo_c['auto_left'] = _strip_len(_cl); lo_c['auto_right'] = _strip_len(_cr)
             units.append({'_merged': True, 'upper': up_c, 'lower': lo_c, '순번': f"{w['순번']}+{lo['순번']}"})
-        elif idx in hpair:
-            ri = wins[hpair[idx]]
-            # ★ [가로결합 통바 연속] 상/하 가로통바가 결합 전체를 관통 (라벨은 좌측창만)
-            _ct = w.get('auto_top') or ri.get('auto_top') or ''
-            _cb = w.get('auto_bot') or ri.get('auto_bot') or ''
-            l_c = w.copy();  l_c['auto_top'] = _ct;  l_c['auto_bot'] = _cb
-            r_c = ri.copy(); r_c['auto_top'] = _strip_len(_ct); r_c['auto_bot'] = _strip_len(_cb)
-            units.append({'_hmerged': True, 'left': l_c, 'right': r_c, '순번': f"{w['순번']}+{ri['순번']}"})
+        elif idx in hunit:
+            Lv, Rv = hunit[idx]
+            left = wins[Lv] if Lv is not None else None
+            right = wins[Rv] if Rv is not None else None
+            # ★ [가로결합 통바 연속] 상/하 가로통바가 결합 전체를 관통 (라벨/이름은 메인창만)
+            _ct = w.get('auto_top') or (left.get('auto_top') if left else '') or (right.get('auto_top') if right else '') or ''
+            _cb = w.get('auto_bot') or (left.get('auto_bot') if left else '') or (right.get('auto_bot') if right else '') or ''
+            main_c = w.copy(); main_c['auto_top'] = _ct; main_c['auto_bot'] = _cb
+            left_c = right_c = None
+            _seqs = []
+            if left is not None:
+                left_c = left.copy(); left_c['auto_top'] = _strip_len(_ct); left_c['auto_bot'] = _strip_len(_cb)
+                _seqs.append(str(left['순번']))
+            _seqs.append(str(w['순번']))
+            if right is not None:
+                right_c = right.copy(); right_c['auto_top'] = _strip_len(_ct); right_c['auto_bot'] = _strip_len(_cb)
+                _seqs.append(str(right['순번']))
+            units.append({'_hmerged': True, 'main': main_c, 'left': left_c, 'right': right_c, '순번': "+".join(_seqs)})
         else:
             units.append(w)
     return units
@@ -1011,11 +1004,17 @@ def _compute_window_footprint(win, mm_to_inch=None, label_mode='normal'):
         fw_u, fh_u = _compute_window_footprint(win['upper'], mm_to_inch, 'upper')
         fw_l, fh_l = _compute_window_footprint(win['lower'], mm_to_inch, 'lower')
         return max(fw_u, fw_l), fh_u + fh_l
-    # ★ [가로결합] 좌/우 footprint를 가로로 합치고, 높이는 더 높은 쪽으로
+    # ★ [가로결합] 메인 + 좌/우 부착을 가로로 합치고, 높이는 최대값
     if win.get('_hmerged'):
-        fw_L, fh_L = _compute_window_footprint(win['left'], mm_to_inch, 'left')
-        fw_R, fh_R = _compute_window_footprint(win['right'], mm_to_inch, 'right')
-        return fw_L + fw_R, max(fh_L, fh_R)
+        fw_M, fh_M = _compute_window_footprint(win['main'], mm_to_inch, 'hmain')
+        tot_w, tot_h = fw_M, fh_M
+        if win.get('left'):
+            fw_L, fh_L = _compute_window_footprint(win['left'], mm_to_inch, 'left')
+            tot_w += fw_L; tot_h = max(tot_h, fh_L)
+        if win.get('right'):
+            fw_R, fh_R = _compute_window_footprint(win['right'], mm_to_inch, 'right')
+            tot_w += fw_R; tot_h = max(tot_h, fh_R)
+        return tot_w, tot_h
 
     t_top_list = parse_tongba_input(win['auto_top'], win['가로(W)'])
     t_bot_list = parse_tongba_input(win['auto_bot'], win['가로(W)'])
@@ -1073,21 +1072,12 @@ def _compute_window_footprint(win, mm_to_inch=None, label_mode='normal'):
         footprint_h = (h_val + total_top + total_bot) + _below
     elif label_mode in ('left', 'right'):
         _lbl_gap = _h_mm(11) * 0.6
-        _lbl_stack_gap = _h_mm(11) * 0.3
-        _title_h = _h_mm(11, 1.3) * 2
-        _glass_h = _h_mm(9, 1.4) if glass_text else 0
-        _size_h = _h_mm(11, 1.2)
-        _stack_h = _title_h + _lbl_stack_gap + ((_glass_h + _lbl_stack_gap) if glass_text else 0) + _size_h
         _lbl_block_w = max(title_hw * 2, glass_hw * 2, size_hw * 2)
-        _body_top_f = h_val + total_top
-        _body_bot_f = -total_bot
-        _hz_top = _body_top_f + header_h_mm
-        _stack_top = _hz_top - (_h_mm(9, 1.2) + _h_mm(9) * 0.5)
-        _stack_bottom = _stack_top - _stack_h
-        _box_top_f = _body_top_f + header_h_mm
-        _box_bot_f = min(_body_bot_f, _stack_bottom) - _lbl_gap
         footprint_w = (w_val + total_left + total_right) + _lbl_gap + _lbl_block_w + SIDE_PAD * 0.5
-        footprint_h = _box_top_f - _box_bot_f
+        footprint_h = (h_val + total_top + total_bot) + header_h_mm + footer_h_mm
+    elif label_mode == 'hmain':
+        footprint_w = (w_val + total_left + total_right)   # 가로 tight(본체끝)
+        footprint_h = (h_val + total_top + total_bot) + header_h_mm + footer_h_mm
     else:
         footprint_h = (h_val + total_top + total_bot) + header_h_mm + footer_h_mm
     return footprint_w, footprint_h
@@ -1300,36 +1290,42 @@ def generate_a3_pdf_and_images(draw_data, p_name, s_addr, n_cols=4, items_per_pa
                             lo_bottom / PAGE_H_INCH, bwl / PAGE_W_INCH, bhl / PAGE_H_INCH])
                         _render_win_dict(ax_l, lo, mm_to_inch=MM_TO_INCH, label_mode='lower', draw_box=False, side_tongba_labels=False)
                     elif win.get('_hmerged'):
-                        # ★ [가로결합] 좌/우를 한 셀 안에 가로로 맞닿게 배치 (좌=라벨 왼쪽, 우=라벨 오른쪽)
-                        lft, rgt = win['left'], win['right']
-                        fw_L, fh_L = _compute_window_footprint(lft, MM_TO_INCH, 'left')
-                        fw_R, fh_R = _compute_window_footprint(rgt, MM_TO_INCH, 'right')
-                        bwL, bhL = fw_L * MM_TO_INCH, fh_L * MM_TO_INCH
-                        bwR, bhR = fw_R * MM_TO_INCH, fh_R * MM_TO_INCH
-                        cell_h = max(bhL, bhR)
+                        # ★ [가로결합] 좌 | 메인 | 우 를 한 셀에 가로로 맞닿게 배치
+                        #   메인=헤더 위(정상), 좌/우 부착=옆 세로중앙 라벨. 모두 상단 정렬.
+                        main = win['main']; lft = win.get('left'); rgt = win.get('right')
+                        fw_M, fh_M = _compute_window_footprint(main, MM_TO_INCH, 'hmain')
+                        bwM, bhM = fw_M * MM_TO_INCH, fh_M * MM_TO_INCH
+                        parts = []  # (win, mode, bw, bh, topbot_labels)
+                        if lft is not None:
+                            fw_L, fh_L = _compute_window_footprint(lft, MM_TO_INCH, 'left')
+                            parts.append((lft, 'left', fw_L * MM_TO_INCH, fh_L * MM_TO_INCH, False))
+                        parts.append((main, 'hmain', bwM, bhM, True))
+                        if rgt is not None:
+                            fw_R, fh_R = _compute_window_footprint(rgt, MM_TO_INCH, 'right')
+                            parts.append((rgt, 'right', fw_R * MM_TO_INCH, fh_R * MM_TO_INCH, False))
+                        cell_h = max(p[3] for p in parts)
 
-                        # ★ 좌/우 전체를 감싸는 '단일' 외곽 박스
-                        _cell_w_mm, _cell_h_mm = fw_mm, max(fh_L, fh_R)
+                        # ★ 전체를 감싸는 '단일' 외곽 박스
+                        _cell_h_mm = cell_h / MM_TO_INCH
                         ax_bg = fig.add_axes([
                             cursor_x_inch / PAGE_W_INCH, (cursor_y_inch - cell_h) / PAGE_H_INCH,
                             col_w_inch / PAGE_W_INCH, cell_h / PAGE_H_INCH], zorder=-20)
-                        ax_bg.set_xlim(0, _cell_w_mm); ax_bg.set_ylim(0, _cell_h_mm); ax_bg.axis('off')
-                        _cr = min(_cell_w_mm, _cell_h_mm) * 0.04
+                        ax_bg.set_xlim(0, fw_mm); ax_bg.set_ylim(0, _cell_h_mm); ax_bg.axis('off')
+                        _cr = min(fw_mm, _cell_h_mm) * 0.04
                         ax_bg.add_patch(patches.FancyBboxPatch(
-                            (0, 0), _cell_w_mm, _cell_h_mm,
+                            (0, 0), fw_mm, _cell_h_mm,
                             boxstyle=f"round,pad=0,rounding_size={_cr}",
                             facecolor='none', edgecolor='#E5E7EB', linewidth=0.4, clip_on=False))
 
-                        # 좌측: 셀 좌단에 붙이고 상단 정렬 (개별 박스 OFF)
-                        ax_L = fig.add_axes([
-                            cursor_x_inch / PAGE_W_INCH, (cursor_y_inch - bhL) / PAGE_H_INCH,
-                            bwL / PAGE_W_INCH, bhL / PAGE_H_INCH])
-                        _render_win_dict(ax_L, lft, mm_to_inch=MM_TO_INCH, label_mode='left', draw_box=False)
-                        # 우측: 좌측 바로 오른쪽 맞닿게 (개별 박스 OFF, 상/하 통바 라벨 OFF → 연속)
-                        ax_R = fig.add_axes([
-                            (cursor_x_inch + bwL) / PAGE_W_INCH, (cursor_y_inch - bhR) / PAGE_H_INCH,
-                            bwR / PAGE_W_INCH, bhR / PAGE_H_INCH])
-                        _render_win_dict(ax_R, rgt, mm_to_inch=MM_TO_INCH, label_mode='right', draw_box=False, topbot_tongba_labels=False)
+                        # 좌→메인→우 순으로 가로로 붙이며 상단 정렬 (개별 박스 OFF)
+                        _cx = cursor_x_inch
+                        for (pwin, pmode, pbw, pbh, ptb) in parts:
+                            axp = fig.add_axes([
+                                _cx / PAGE_W_INCH, (cursor_y_inch - pbh) / PAGE_H_INCH,
+                                pbw / PAGE_W_INCH, pbh / PAGE_H_INCH])
+                            _render_win_dict(axp, pwin, mm_to_inch=MM_TO_INCH, label_mode=pmode,
+                                             draw_box=False, topbot_tongba_labels=ptb)
+                            _cx += pbw
                     else:
                         ax_left = cursor_x_inch / PAGE_W_INCH
                         ax_bottom = (cursor_y_inch - row_h_inch) / PAGE_H_INCH
