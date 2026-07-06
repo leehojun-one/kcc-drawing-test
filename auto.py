@@ -1229,9 +1229,13 @@ def _pick_scale_ratio(draw_data, page_w_mm, page_h_mm, gap_mm, target_cols=4, ta
     target_row_h_mm = page_h_mm / target_rows - gap_mm
 
     best_scale = STANDARD_SCALES[-1]
+    # ★ 결합셀(좌/우 옆라벨로 footprint가 과대)은 배율 기준에서 제외 → 배율 폭락 방지
+    basis = [w for w in draw_data if not (w.get('_merged') or w.get('_hmerged'))]
+    if not basis:
+        basis = draw_data
     for scale in STANDARD_SCALES:  # 작은 배율 숫자(=크게 보임)부터 검사해서, 대표 도면이 칸에 들어가는 첫 배율을 선택
         mm_to_inch = INCH_PER_MM / scale
-        fps = sorted([_compute_window_footprint(w, mm_to_inch) for w in draw_data], key=lambda x: x[0] * x[1])
+        fps = sorted([_compute_window_footprint(w, mm_to_inch) for w in basis], key=lambda x: x[0] * x[1])
         rep_fw, rep_fh = fps[len(fps) // 2]
         # ★ 실제 세계 mm(footprint) → 종이 위 물리적 mm로 정확히 환산
         drawn_w_mm = rep_fw * mm_to_inch / INCH_PER_MM
