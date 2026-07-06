@@ -1015,7 +1015,7 @@ def _build_render_units(wins, merge_sel, hmerge_sel=None, hmerge_left_sel=None):
     return units
 
 
-def _compute_window_footprint(win, mm_to_inch=None, label_mode='normal'):
+def _compute_window_footprint(win, mm_to_inch=None, label_mode='normal', return_above=False):
     """이 도면이 실제로 차지하는 전체 박스 크기를 mm 단위로 계산.
     ★★★ [완전 재설계] 박스 = 헤더(제목2줄+유리사양) + 본체(통바포함) + 사이즈텍스트 전체를 1세트로 묶는다.
     render_window_on_ax의 박스 계산 로직과 정확히 동일한 공식을 사용해야
@@ -1028,22 +1028,24 @@ def _compute_window_footprint(win, mm_to_inch=None, label_mode='normal'):
         fw_u, fh_u = _compute_window_footprint(win['upper'], mm_to_inch, 'upper')
         fw_l, fh_l = _compute_window_footprint(win['lower'], mm_to_inch, 'lower')
         return max(fw_u, fw_l), fh_u + fh_l
-    # ★ [가로결합] 중앙열(메인 [+아래]) + 좌/우 부착을 가로로 합치고, 높이는 최대값
+    # ★ [가로결합] 중앙열(메인 [+아래]) + 좌/우 부착. 본체 상단 정렬(above 맞춤) 반영해 높이 계산.
     if win.get('_hmerged'):
-        below = win.get('below')
-        if below is not None:
-            fw_Mt, fh_Mt = _compute_window_footprint(win['main'], mm_to_inch, 'hupper')
-            fw_B, fh_B = _compute_window_footprint(below, mm_to_inch, 'hlower')
-            tot_w, tot_h = max(fw_Mt, fw_B), (fh_Mt + fh_B)
-        else:
-            fw_M, fh_M = _compute_window_footprint(win['main'], mm_to_inch, 'hmain')
-            tot_w, tot_h = fw_M, fh_M
+        _mm = 'hupper' if win.get('below') else 'hmain'
+        fw_M, fh_M, ab_M = _compute_window_footprint(win['main'], mm_to_inch, _mm, return_above=True)
+        center_w, center_h = fw_M, fh_M
+        if win.get('below'):
+            fw_B, fh_B = _compute_window_footprint(win['below'], mm_to_inch, 'hlower')
+            center_w, center_h = max(fw_M, fw_B), (fh_M + fh_B)
+        parts = [(center_w, center_h, ab_M)]
         if win.get('left'):
-            fw_L, fh_L = _compute_window_footprint(win['left'], mm_to_inch, 'left')
-            tot_w += fw_L; tot_h = max(tot_h, fh_L)
+            fw_L, fh_L, ab_L = _compute_window_footprint(win['left'], mm_to_inch, 'left', return_above=True)
+            parts.append((fw_L, fh_L, ab_L))
         if win.get('right'):
-            fw_R, fh_R = _compute_window_footprint(win['right'], mm_to_inch, 'right')
-            tot_w += fw_R; tot_h = max(tot_h, fh_R)
+            fw_R, fh_R, ab_R = _compute_window_footprint(win['right'], mm_to_inch, 'right', return_above=True)
+            parts.append((fw_R, fh_R, ab_R))
+        _max_ab = max(p[2] for p in parts)
+        tot_w = sum(p[0] for p in parts)
+        tot_h = max((_max_ab - p[2]) + p[1] for p in parts)
         return tot_w, tot_h
 
     t_top_list = parse_tongba_input(win['auto_top'], win['가로(W)'])
@@ -1098,24 +1100,33 @@ def _compute_window_footprint(win, mm_to_inch=None, label_mode='normal'):
     _below_fp = _gap_fp + _h_mm(11, 1.2) + _h_mm(11, 1.3) * 2 + (_h_mm(9, 1.2) if glass_text else 0) + _h_mm(11) * 0.5
     if label_mode == 'upper':
         footprint_h = (h_val + total_top + total_bot) + _above_fp
+        _above_ret = _above_fp
     elif label_mode == 'lower':
         footprint_h = (h_val + total_top + total_bot) + _below_fp
+        _above_ret = 0
     elif label_mode == 'hupper':
         footprint_w = (w_val + total_left + total_right)   # 가로 tight
         footprint_h = (h_val + total_top + total_bot) + _above_fp
+        _above_ret = _above_fp
     elif label_mode == 'hlower':
         footprint_w = (w_val + total_left + total_right)
         footprint_h = (h_val + total_top + total_bot) + _below_fp
+        _above_ret = 0
     elif label_mode in ('left', 'right'):
         _lbl_gap = _h_mm(11) * 0.6
         _lbl_block_w = max(title_hw * 2, glass_hw * 2, size_hw * 2)
         footprint_w = (w_val + total_left + total_right) + _lbl_gap + _lbl_block_w + SIDE_PAD * 0.5
         footprint_h = (h_val + total_top + total_bot) + header_h_mm + footer_h_mm
+        _above_ret = header_h_mm
     elif label_mode == 'hmain':
         footprint_w = (w_val + total_left + total_right)   # 가로 tight(본체끝)
         footprint_h = (h_val + total_top + total_bot) + header_h_mm + footer_h_mm
+        _above_ret = header_h_mm
     else:
         footprint_h = (h_val + total_top + total_bot) + header_h_mm + footer_h_mm
+        _above_ret = header_h_mm
+    if return_above:
+        return footprint_w, footprint_h, _above_ret
     return footprint_w, footprint_h
 
 
@@ -1341,65 +1352,60 @@ def generate_a3_pdf_and_images(draw_data, p_name, s_addr, n_cols=4, items_per_pa
                             lo_bottom / PAGE_H_INCH, bwl / PAGE_W_INCH, bhl / PAGE_H_INCH])
                         _render_win_dict(ax_l, lo, mm_to_inch=MM_TO_INCH, label_mode='lower', draw_box=False, side_tongba_labels=False)
                     elif win.get('_hmerged'):
-                        # ★ [가로결합] 좌 | 중앙열(메인[+아래]) | 우 를 한 셀에 가로로 맞닿게 배치
-                        #   메인=헤더 위(정상), 좌/우=옆 세로중앙, 아래=메인 밑에 세로스택. 모두 상단 정렬.
+                        # ★ [가로결합] 좌 | 중앙열(메인[+아래]) | 우. 각 창의 '본체 상단'을 같은 높이에 정렬.
                         main = win['main']; lft = win.get('left'); rgt = win.get('right'); blw = win.get('below')
-                        # 중앙열 크기
+                        main_mode = 'hupper' if blw is not None else 'hmain'
+                        fw_M, fh_M, ab_M = _compute_window_footprint(main, MM_TO_INCH, main_mode, return_above=True)
+                        mbw, mbh = fw_M * MM_TO_INCH, fh_M * MM_TO_INCH
+                        bbw = bbh = 0
+                        center_w = mbw
                         if blw is not None:
-                            fw_Mt, fh_Mt = _compute_window_footprint(main, MM_TO_INCH, 'hupper')
                             fw_B, fh_B = _compute_window_footprint(blw, MM_TO_INCH, 'hlower')
-                            center_w = max(fw_Mt, fw_B) * MM_TO_INCH
-                            center_h = (fh_Mt + fh_B) * MM_TO_INCH
-                        else:
-                            fw_M, fh_M = _compute_window_footprint(main, MM_TO_INCH, 'hmain')
-                            center_w, center_h = fw_M * MM_TO_INCH, fh_M * MM_TO_INCH
-                        lbw = lbh = rbw = rbh = 0
+                            bbw, bbh = fw_B * MM_TO_INCH, fh_B * MM_TO_INCH
+                            center_w = max(mbw, bbw)
+                        lbw = lbh = rbw = rbh = 0; ab_L = ab_R = 0
                         if lft is not None:
-                            fw_L, fh_L = _compute_window_footprint(lft, MM_TO_INCH, 'left')
+                            fw_L, fh_L, ab_L = _compute_window_footprint(lft, MM_TO_INCH, 'left', return_above=True)
                             lbw, lbh = fw_L * MM_TO_INCH, fh_L * MM_TO_INCH
                         if rgt is not None:
-                            fw_R, fh_R = _compute_window_footprint(rgt, MM_TO_INCH, 'right')
+                            fw_R, fh_R, ab_R = _compute_window_footprint(rgt, MM_TO_INCH, 'right', return_above=True)
                             rbw, rbh = fw_R * MM_TO_INCH, fh_R * MM_TO_INCH
-                        cell_h = max(center_h, lbh, rbh)
 
-                        # ★ 전체를 감싸는 '단일' 외곽 박스
+                        # 본체 상단 정렬: (박스상단→본체상단) 거리(above)를 맞춰 각 파트 top을 내림
+                        aboves = [ab_M] + ([ab_L] if lft is not None else []) + ([ab_R] if rgt is not None else [])
+                        max_ab = max(aboves)
+                        top_M = cursor_y_inch - (max_ab - ab_M) * MM_TO_INCH
+                        top_L = cursor_y_inch - (max_ab - ab_L) * MM_TO_INCH
+                        top_R = cursor_y_inch - (max_ab - ab_R) * MM_TO_INCH
+                        bot_M = top_M - mbh
+                        bots = [(bot_M - bbh) if blw is not None else bot_M]
+                        if lft is not None: bots.append(top_L - lbh)
+                        if rgt is not None: bots.append(top_R - rbh)
+                        cell_bot = min(bots)
+                        cell_h = cursor_y_inch - cell_bot
                         _cell_h_mm = cell_h / MM_TO_INCH
-                        ax_bg = fig.add_axes([
-                            cursor_x_inch / PAGE_W_INCH, (cursor_y_inch - cell_h) / PAGE_H_INCH,
-                            col_w_inch / PAGE_W_INCH, cell_h / PAGE_H_INCH], zorder=-20)
+
+                        # 단일 외곽 박스
+                        ax_bg = fig.add_axes([cursor_x_inch / PAGE_W_INCH, cell_bot / PAGE_H_INCH,
+                                              col_w_inch / PAGE_W_INCH, cell_h / PAGE_H_INCH], zorder=-20)
                         ax_bg.set_xlim(0, fw_mm); ax_bg.set_ylim(0, _cell_h_mm); ax_bg.axis('off')
                         _cr = min(fw_mm, _cell_h_mm) * 0.04
-                        ax_bg.add_patch(patches.FancyBboxPatch(
-                            (0, 0), fw_mm, _cell_h_mm,
-                            boxstyle=f"round,pad=0,rounding_size={_cr}",
-                            facecolor='none', edgecolor='#E5E7EB', linewidth=0.4, clip_on=False))
+                        ax_bg.add_patch(patches.FancyBboxPatch((0, 0), fw_mm, _cell_h_mm,
+                            boxstyle=f"round,pad=0,rounding_size={_cr}", facecolor='none', edgecolor='#E5E7EB', linewidth=0.4, clip_on=False))
 
                         _cx = cursor_x_inch
-                        # 좌 (세로중앙 라벨, 상단정렬)
                         if lft is not None:
-                            axp = fig.add_axes([_cx / PAGE_W_INCH, (cursor_y_inch - lbh) / PAGE_H_INCH,
-                                                lbw / PAGE_W_INCH, lbh / PAGE_H_INCH])
+                            axp = fig.add_axes([_cx / PAGE_W_INCH, (top_L - lbh) / PAGE_H_INCH, lbw / PAGE_W_INCH, lbh / PAGE_H_INCH])
                             _render_win_dict(axp, lft, mm_to_inch=MM_TO_INCH, label_mode='left', draw_box=False, topbot_tongba_labels=False)
                             _cx += lbw
-                        # 중앙열
+                        axm = fig.add_axes([(_cx + (center_w - mbw) / 2) / PAGE_W_INCH, bot_M / PAGE_H_INCH, mbw / PAGE_W_INCH, mbh / PAGE_H_INCH])
+                        _render_win_dict(axm, main, mm_to_inch=MM_TO_INCH, label_mode=main_mode, draw_box=False)
                         if blw is not None:
-                            mbw, mbh = fw_Mt * MM_TO_INCH, fh_Mt * MM_TO_INCH
-                            bbw, bbh = fw_B * MM_TO_INCH, fh_B * MM_TO_INCH
-                            axm = fig.add_axes([(_cx + (center_w - mbw) / 2) / PAGE_W_INCH, (cursor_y_inch - mbh) / PAGE_H_INCH,
-                                                mbw / PAGE_W_INCH, mbh / PAGE_H_INCH])
-                            _render_win_dict(axm, main, mm_to_inch=MM_TO_INCH, label_mode='hupper', draw_box=False)
-                            axb = fig.add_axes([(_cx + (center_w - bbw) / 2) / PAGE_W_INCH, (cursor_y_inch - mbh - bbh) / PAGE_H_INCH,
-                                                bbw / PAGE_W_INCH, bbh / PAGE_H_INCH])
+                            axb = fig.add_axes([(_cx + (center_w - bbw) / 2) / PAGE_W_INCH, (bot_M - bbh) / PAGE_H_INCH, bbw / PAGE_W_INCH, bbh / PAGE_H_INCH])
                             _render_win_dict(axb, blw, mm_to_inch=MM_TO_INCH, label_mode='hlower', draw_box=False, side_tongba_labels=False, topbot_tongba_labels=False)
-                        else:
-                            axm = fig.add_axes([_cx / PAGE_W_INCH, (cursor_y_inch - center_h) / PAGE_H_INCH,
-                                                center_w / PAGE_W_INCH, center_h / PAGE_H_INCH])
-                            _render_win_dict(axm, main, mm_to_inch=MM_TO_INCH, label_mode='hmain', draw_box=False)
                         _cx += center_w
-                        # 우 (세로중앙 라벨, 상단정렬)
                         if rgt is not None:
-                            axp = fig.add_axes([_cx / PAGE_W_INCH, (cursor_y_inch - rbh) / PAGE_H_INCH,
-                                                rbw / PAGE_W_INCH, rbh / PAGE_H_INCH])
+                            axp = fig.add_axes([_cx / PAGE_W_INCH, (top_R - rbh) / PAGE_H_INCH, rbw / PAGE_W_INCH, rbh / PAGE_H_INCH])
                             _render_win_dict(axp, rgt, mm_to_inch=MM_TO_INCH, label_mode='right', draw_box=False, topbot_tongba_labels=False)
                             _cx += rbw
                     else:
