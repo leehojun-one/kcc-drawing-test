@@ -496,6 +496,13 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
                 prev_x = sp
             ax.add_patch(patches.Rectangle((prev_x, 0), w - prev_x, h, facecolor=mist_color, hatch=mist_hatch, edgecolor='none', alpha=mist_alpha))
 
+    if "모루" in glass_combined:
+        # ★ 모루(리드/골판) 유리 = 촘촘한 세로 줄무늬 (약 28mm 간격, 터닝도어 등 좁은 창에도 촘촘하게)
+        _n = int(min(90, max(14, w / 28)))
+        for _i in range(1, _n):
+            _lx = w * _i / _n
+            ax.plot([_lx, _lx], [0, h], color='#9CA3AF', linewidth=0.45, alpha=0.75, zorder=1)
+
     # ★ [통바ㅁ/통바ㄷ] 실선 대신 통바 고유 두께(OFFSET) + 고유 색상 프레임으로 작도
     #    ★ 공틀 내부면에는 선을 넣지 않음 → 밴드는 edgecolor 없이 '색'만, 외곽선만 별도로 1줄
     if '통바ㅁ' in t_upper or '통바ㄷ' in t_upper:
@@ -589,6 +596,8 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
 
     if "미스트" in glass_combined:
         ax.text(w/2, h * 0.8, "미스트", ha='center', va='center', color='red', fontsize=11, fontweight='bold', bbox=txt_bbox)
+    if "모루" in glass_combined:
+        ax.text(w/2, h * 0.8, "모루", ha='center', va='center', color='#0F766E', fontsize=11, fontweight='bold', bbox=txt_bbox)
     
     if re.search(r'고정창', product, re.IGNORECASE) or "FIX" in t_upper:
         if repeat_count > 1 and unit_w:
