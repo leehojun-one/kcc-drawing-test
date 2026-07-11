@@ -453,7 +453,7 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
     t_upper = t_upper.replace("통바\u03a0", "통바ㄷ").replace("\u03a0", "통바ㄷ") if "\u03a0" in t_upper else t_upper
     glass_combined = str(glass_in) + str(glass_out)
     
-    mist_color, mist_alpha, mist_hatch = '#BAE6FD', 0.6, '....'
+    mist_color, mist_alpha, mist_hatch = '#BAE6FD', 0.6, '........'
     txt_bbox = dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.85)
     
     TEXT_SIZE = 5.0
@@ -498,7 +498,7 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
 
     if "모루" in glass_combined:
         # ★ 모루(리드/골판) 유리 = 촘촘한 세로 줄무늬 (약 28mm 간격, 터닝도어 등 좁은 창에도 촘촘하게)
-        _n = int(min(90, max(14, w / 28)))
+        _n = int(min(45, max(7, w / 56)))
         for _i in range(1, _n):
             _lx = w * _i / _n
             ax.plot([_lx, _lx], [0, h], color='#9CA3AF', linewidth=0.45, alpha=0.75, zorder=1)
