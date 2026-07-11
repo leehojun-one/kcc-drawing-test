@@ -44,6 +44,7 @@ else:
         plt.rc('font', family='sans-serif')
 
 plt.rcParams['axes.unicode_minus'] = False 
+plt.rcParams['hatch.linewidth'] = 0.5   # ★ 미스트 도트 크기 축소 (기본 1.0 → 0.5, 간격은 유지)
 
 HOMECC_SLOGAN = "도면에 표기된 치수(사이즈)는 통바 제외한 창호 사이즈 입니다. 공간에 가치를 더하는 프리미엄 창호, KCC글라스 홈씨씨창호"
 
@@ -453,7 +454,7 @@ def render_window_on_ax(ax, seq, w, h, w1, win_type, loc, product, model_name, g
     t_upper = t_upper.replace("통바\u03a0", "통바ㄷ").replace("\u03a0", "통바ㄷ") if "\u03a0" in t_upper else t_upper
     glass_combined = str(glass_in) + str(glass_out)
     
-    mist_color, mist_alpha, mist_hatch = '#BAE6FD', 0.6, '........'
+    mist_color, mist_alpha, mist_hatch = '#BAE6FD', 0.6, '....'
     txt_bbox = dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.85)
     
     TEXT_SIZE = 5.0
