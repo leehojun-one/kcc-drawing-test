@@ -6,6 +6,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 import platform
 import re
 import io
+import gc   # ★ [메모리 최적화] 페이지 렌더 후 즉시 회수
 import base64
 import gspread  # 💡 구글 시트 연동용 패키지
 from google.oauth2.service_account import Credentials  # 💡 구글 인증용 패키지
