@@ -1281,7 +1281,7 @@ def _pick_scale_ratio(draw_data, page_w_mm, page_h_mm, gap_mm, target_cols=4, ta
 def generate_a3_pdf_and_images(draw_data, p_name, s_addr, n_cols=4, items_per_page=12, scale_ratio=None):
     pdf_buf = io.BytesIO()
     img_bufs = []          # 페이지별 PNG (개별 다운로드용)
-    all_figs = []
+    # ★ [메모리 최적화] all_figs 제거 — 페이지를 그리는 즉시 plt.close()로 해제
 
     # ★★★ [핵심] 캔버스는 항상 A3 가로(420mm × 297mm) 비율로 고정 — 도면 개수/크기와 무관하게 절대 불변
     A3_W_MM, A3_H_MM = 420.0, 297.0
@@ -1439,25 +1439,34 @@ def generate_a3_pdf_and_images(draw_data, p_name, s_addr, n_cols=4, items_per_pa
             pdf.savefig(fig)
 
             img_buf = io.BytesIO()
-            fig.savefig(img_buf, format='png', dpi=150)
+            fig.savefig(img_buf, format='png', dpi=150)   # ★ [메모리 최적화] dpi 200→150
             img_bufs.append(img_buf.getvalue())
+            img_buf.close()
 
-            all_figs.append(fig)
+            # ★ [메모리 최적화] 페이지를 그리는 즉시 figure 해제 (모아뒀다 닫으면 전 페이지가 동시 상주)
+            plt.close(fig)
+            fig.clf()
+            gc.collect()
 
     combined_buf = io.BytesIO()
     if img_bufs:
-        page_images = [Image.open(io.BytesIO(b)) for b in img_bufs]
-        total_w = max(im.width for im in page_images)
-        total_h = sum(im.height for im in page_images)
+        # ★ [메모리 최적화] 한 장씩 열고 붙인 뒤 즉시 해제 (전 페이지를 동시에 펼치지 않음)
+        sizes = []
+        for b in img_bufs:
+            with Image.open(io.BytesIO(b)) as im:
+                sizes.append(im.size)
+        total_w = max(s[0] for s in sizes)
+        total_h = sum(s[1] for s in sizes)
         combined_img = Image.new('RGB', (total_w, total_h), 'white')
         y_off = 0
-        for im in page_images:
-            combined_img.paste(im, (0, y_off))
-            y_off += im.height
-        combined_img.save(combined_buf, format='PNG')
-
-    for fig in all_figs:
-        plt.close(fig)
+        for b in img_bufs:
+            with Image.open(io.BytesIO(b)) as im:
+                combined_img.paste(im, (0, y_off))
+                y_off += im.height
+        combined_img.save(combined_buf, format='PNG', optimize=True)
+        combined_img.close()
+        del combined_img
+        gc.collect()
 
     return pdf_buf.getvalue(), img_bufs, combined_buf.getvalue()
 
@@ -1729,7 +1738,8 @@ if uploaded_file:
 
                             fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01)
                             st.pyplot(fig, use_container_width=False)
-                            plt.close(fig) 
+                            fig.clf()
+                            plt.close(fig)
                             
                             if status == "pending":
                                 c1, c2 = st.columns(2)
