@@ -9,7 +9,9 @@ import io
 import base64
 import gspread  # 💡 구글 시트 연동용 패키지
 from google.oauth2.service_account import Credentials  # 💡 구글 인증용 패키지
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+KST = timezone(timedelta(hours=9))   # ★ 한국 표준시 (서버가 UTC여도 로그는 KST로 기록)
 import os
 import urllib.request
 import matplotlib.font_manager as fm
@@ -81,7 +83,7 @@ def log_usage(partner_name, site_address, doc_count):
         sheet = init_gsheet()
         if sheet:
             log_sheet = sheet.worksheet("Usage_Log")
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
             user_name = st.session_state.get("user_name", "알수없음")
             user_sabun = st.session_state.get("user_sabun", "알수없음")
             
