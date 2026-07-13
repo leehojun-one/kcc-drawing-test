@@ -1439,7 +1439,7 @@ def generate_a3_pdf_and_images(draw_data, p_name, s_addr, n_cols=4, items_per_pa
             pdf.savefig(fig)
 
             img_buf = io.BytesIO()
-            fig.savefig(img_buf, format='png', dpi=200)
+            fig.savefig(img_buf, format='png', dpi=150)
             img_bufs.append(img_buf.getvalue())
 
             all_figs.append(fig)
